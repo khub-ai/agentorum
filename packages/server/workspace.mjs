@@ -287,8 +287,9 @@ export class WorkspaceManager {
     };
     await writeJson(path.join(sessionDir, 'session.json'), sessionMeta);
 
-    // Write initial chatlog
-    const systemEntry = `### ${now.replace('T', ' ').slice(0, 19)} - SYSTEM\n\nSession "${name.trim()}" started. Scenario: ${scenario.name}.\n\n`;
+    // Write initial chatlog — use an HTML comment so it is invisible in rendered
+    // Markdown and does NOT match the ### TIMESTAMP - AUTHOR entry pattern.
+    const systemEntry = `<!-- agentorum: session="${name.trim()}" scenario="${scenario.name}" created="${now}" -->\n\n`;
     await fs.writeFile(chatlogPath, systemEntry, 'utf8');
 
     // Write agentorum.config.json for this session

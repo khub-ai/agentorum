@@ -93,7 +93,8 @@ function participantColor(id) {
 }
 
 function participantName(id) {
-  return participantMap[id]?.name || id;
+  const p = participantMap[id];
+  return p?.label || p?.name || id;
 }
 
 function participantRole(id) {
@@ -356,7 +357,7 @@ function updateParticipantPill(id) {
 function renderAgentCards() {
   const el = document.getElementById('agent-cards');
   el.innerHTML = '';
-  (serverConfig.participants || []).filter(p => p.type === 'agent').forEach(p => {
+  (serverConfig.participants || []).filter(p => p.type === 'agent' || (p.agent && p.agent !== 'human')).forEach(p => {
     el.appendChild(makeAgentCard(p));
   });
 }
