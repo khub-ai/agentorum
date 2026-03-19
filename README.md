@@ -1,6 +1,25 @@
 # Agentorum
 
-**Put a panel of AI specialists on any hard problem — and get a structured, auditable debate instead of a single opinion.**
+**The open-source, no-code platform for structured multi-agent debate — with purpose-built visualization, live data charts, full audit trail, and human-in-the-loop control. Free forever.**
+
+---
+
+## How Agentorum is different
+
+Every other multi-agent tool routes tasks through a pipeline. Agentorum runs a **debate**.
+
+| | Agentorum | Task-automation agents (Agentforce, Operator, Devin) | Pipeline agents (Superagent, CrewAI) | Spreadsheet AI (Airtable) |
+|---|---|---|---|---|
+| Multi-agent deliberation | **Yes — core purpose** | No — task handoff only | No — sequential execution | No |
+| Purpose-built debate GUI | **Yes** | No | No | No |
+| Thread tree + stance arc + position map | **Yes** | No | No | No |
+| Live data tables and charts | **Yes** | No | No | Native (but no debate) |
+| Human steers debate in real time | **Yes — first class** | Limited | Limited | Manual steps only |
+| Full auditable transcript | **Yes** | Session logs only | Basic run logs | Row history only |
+| Domain-agnostic | **Yes** | CRM / task-specific | General pipelines | Spreadsheet workflows |
+| Open-source and free | **Yes** | No | Partial | No |
+
+The closest rivals are strong in one dimension each — Airtable for data visualization, Salesforce for enterprise workflow, Superagent for no-code pipelines. Agentorum is the only tool that combines structured deliberation, rich visualization, and open-source freedom in a single package aimed at non-technical users.
 
 ---
 
@@ -111,6 +130,7 @@ There is nothing to install beyond Node.js. There is no cloud service. Your deba
 - **Pluggable agent backends** — connect Claude, GPT, Gemini, local models, or humans
 - **Append-only log** — plain Markdown, human-readable, version-controllable
 - **Localhost by default** — nothing leaves your machine
+- **Open-source and free** — MIT license, no subscriptions, no usage fees, no vendor lock-in
 
 ---
 
