@@ -738,7 +738,46 @@ Automation rules define when a participant is triggered automatically. Each rule
 
 ---
 
-## 13. Open Questions
+## 13. Platform and Distribution Decisions
+
+### 13.1 Mobile Strategy (decided)
+
+**Decision: one responsive web app + PWA. No separate native apps.**
+
+Rationale:
+- Agentorum is read-heavy and text-dense. Native APIs (camera, haptics, background audio) are not relevant.
+- Maintaining three codebases (desktop, iOS, Android) for a small open-source project is not viable.
+- App Store review cycles, sandboxing, and 30% cut conflict with the open-source, zero-cost model.
+- The primary mobile use case is monitoring a debate in progress — a viewer role, not a primary input role. This is well served by a browser tab or PWA.
+
+**Implementation:**
+- CSS responsive breakpoints: three-panel layout collapses to single-column below 900px. Sidebar and right panel become bottom-sheet drawers.
+- PWA manifest (`manifest.json`) + service worker added in v1. Users can pin to home screen on both Android and iOS (full-screen, no browser chrome).
+- Known iOS Safari quirks to handle in v1: viewport height with on-screen keyboard, `env(safe-area-inset-bottom)` for the swipe bar, `font-size` zoom-on-focus (suppress with `touch-action` + meta viewport).
+- Touch targets: minimum 44×44px for all interactive controls per WCAG 2.5.5.
+
+**Deferred:** If a specific native capability becomes necessary (e.g., push notifications for new debate rounds), Capacitor can wrap the existing HTML/CSS/JS with minimal rework. The responsive layer built in v1 is the foundation for this.
+
+### 13.2 Desktop Distribution (decided)
+
+**Decision: Electron wrapper for Windows/macOS/Linux. No separate codebases.**
+
+Rationale:
+- The existing stack is Node.js (server) + vanilla HTML/JS/CSS (client). Electron can bundle both the server and the browser UI into a single executable with no rewrite.
+- Electron is the standard path for Node.js desktop apps and is well-understood by open-source contributors.
+- Alternative (pkg/nexe) bundles only the Node.js server; users would still need to open a browser manually. Electron gives a single-window experience that is more appropriate for non-technical users.
+
+**Implementation:**
+- A thin `packages/desktop/` Electron shell launches the server process and opens a `BrowserWindow` pointed at `localhost:3737`.
+- Distribution: GitHub Releases with `electron-builder` producing `.exe` (Windows), `.dmg` (macOS), `.AppImage` (Linux).
+- Auto-update via `electron-updater` pulling from GitHub Releases.
+- Users who prefer the server-only mode can continue to use `npm start` and open a browser manually — the Electron shell is additive, not a replacement.
+
+**Deferred:** Code signing for macOS notarization and Windows SmartScreen requires paid developer accounts. v1 ships unsigned; signed builds are a v1.x milestone once the project has a maintainer identity.
+
+---
+
+## 15. Open Questions
 
 **Repo name:** Working name is `khub-devchat`. Candidate: `agentorum` (no existing npm package; clearly signals multi-agent forum/deliberation; avoids coding-centric read of "devchat"). Decision pending.
 
