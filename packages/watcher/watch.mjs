@@ -24,6 +24,7 @@ const AGENT_CMD      = getArg('agent', 'claude');
 const RESPOND_TO     = getArg('respond-to', 'HUMAN').split(',').map(s => s.trim()).filter(Boolean);
 const CHATLOG        = path.resolve(getArg('chatlog', 'chatlog.md'));
 const CONFIG_PATH    = path.resolve(getArg('config', 'agentorum.config.json'));
+const RULES_PATH     = getArg('rules', null);
 const DEBOUNCE_MS    = parseInt(getArg('debounce', '2000'), 10);
 const DRY_RUN        = hasFlag('dry-run');
 
@@ -82,14 +83,40 @@ async function saveState(state) {
 }
 
 // ---------------------------------------------------------------------------
+// Rules file (shared instructions for all agents)
+// ---------------------------------------------------------------------------
+let rulesContent = null;
+
+async function loadRules() {
+  // Explicit --rules path takes priority, then look for rules.txt next to chatlog
+  const candidates = [
+    RULES_PATH ? path.resolve(RULES_PATH) : null,
+    path.resolve(path.dirname(CHATLOG), 'rules.txt')
+  ].filter(Boolean);
+
+  for (const p of candidates) {
+    try {
+      rulesContent = (await fsp.readFile(p, 'utf8')).trim();
+      console.log(`[${PARTICIPANT_ID}] rules loaded: ${p}`);
+      return;
+    } catch { /* try next */ }
+  }
+  rulesContent = null;
+}
+
+// ---------------------------------------------------------------------------
 // Prompt construction
 // ---------------------------------------------------------------------------
 function buildPrompt(chatlogContent) {
   const sys = participantConfig?.systemPrompt?.trim()
     || `You are ${PARTICIPANT_ID}, a participant in a structured multi-agent debate.`;
 
-  return `${sys}
+  const rulesSection = rulesContent
+    ? `\nSHARED RULES:\n${rulesContent}\n`
+    : '';
 
+  return `${sys}
+${rulesSection}
 CHATLOG:
 ${chatlogContent}
 
@@ -226,6 +253,7 @@ function scheduleProcess() {
 // ---------------------------------------------------------------------------
 async function main() {
   await loadParticipantConfig();
+  await loadRules();
 
   if (!fs.existsSync(CHATLOG)) {
     console.error(`[${PARTICIPANT_ID}] chatlog not found: ${CHATLOG}`);

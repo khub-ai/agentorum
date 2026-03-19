@@ -245,6 +245,13 @@ function startAgent(participant) {
 
   const configArg = activeConfigPath || '';
 
+  // rules.txt: explicit config.rules path wins, otherwise fall back to
+  // rules.txt sitting next to the chatlog (the watcher also auto-discovers
+  // this, but passing it explicitly makes the log output unambiguous).
+  const rulesArg = config.rules
+    ? path.resolve(path.dirname(activeConfigPath || config.chatlog), config.rules)
+    : path.resolve(path.dirname(config.chatlog), 'rules.txt');
+
   const proc = spawn(nodeExe, [
     watcherPath,
     '--participant-id', id,
@@ -252,6 +259,7 @@ function startAgent(participant) {
     '--respond-to',     respondTo,
     '--chatlog',        config.chatlog,
     '--config',         configArg,
+    '--rules',          rulesArg,
   ], { stdio: ['ignore', 'pipe', 'pipe'] });
 
   const state = { process: proc, status: 'running', pid: proc.pid, logs: [], lastResponseAt: null };

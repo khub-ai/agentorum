@@ -414,6 +414,16 @@ export class WorkspaceManager {
       overrides: {}
     });
 
+    // Write rules.txt from bundle if provided, and reference it in the config
+    if (bundle.sessionTemplate?.rules) {
+      const rulesPath = path.join(path.dirname(configPath), 'rules.txt');
+      await fs.writeFile(rulesPath, bundle.sessionTemplate.rules, 'utf8');
+      // Patch the resolved config to reference rules.txt
+      const cfg = JSON.parse(await fs.readFile(configPath, 'utf8'));
+      cfg.rules = 'rules.txt';
+      await writeJson(configPath, cfg);
+    }
+
     // Append the initialEntry if defined
     if (
       bundle.sessionTemplate &&
