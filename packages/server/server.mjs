@@ -1,5 +1,8 @@
 // Agentorum — server.mjs
 // HTTP + WebSocket server: serves the GUI, manages participants, watches the chatlog.
+//
+// Can be run directly:  node server.mjs [--config path] [--port N] [--open]
+// Or imported by Electron main.mjs:  import { startServer } from './server.mjs'
 
 import http        from 'node:http';
 import fs          from 'node:fs';
@@ -203,7 +206,11 @@ function startAgent(participant) {
   const watcherPath = path.resolve(__dirname, '../watcher/watch.mjs');
   const respondTo   = (participant.respondTo || []).join(',');
 
-  const proc = spawn('node', [
+  // When running inside Electron there is no standalone 'node' binary —
+  // process.execPath is the Electron binary, which can also run Node scripts.
+  const nodeExe  = process.versions.electron ? process.execPath : 'node';
+
+  const proc = spawn(nodeExe, [
     watcherPath,
     '--participant-id', id,
     '--agent',          participant.agent || 'claude',
@@ -429,6 +436,18 @@ async function handleRequest(req, res) {
     }
   }
 
+  // --- /api/reload  (used by Electron "Open Config" menu item) ---
+  if (pathname === '/api/reload' && method === 'POST') {
+    const { configPath } = JSON.parse(await readBody(req));
+    if (configPath) {
+      process.argv.push('--config', configPath);  // update argv so loadConfig() picks it up
+      await loadConfig();
+      startChatlogWatcher();
+      broadcast({ type: 'config_updated', config });
+    }
+    return jsonResp(res, { ok: true });
+  }
+
   jsonResp(res, { error: 'not found' }, 404);
 }
 
@@ -480,4 +499,25 @@ async function main() {
   startChatlogWatcher();
 }
 
-main().catch(err => { console.error(err); process.exit(1); });
+// ---------------------------------------------------------------------------
+// Entry point — run directly OR imported by Electron
+// ---------------------------------------------------------------------------
+
+// Exported for Electron: import { startServer } from './server.mjs'
+export async function startServer(opts = {}) {
+  // opts.configPath overrides the --config CLI flag when called from Electron
+  if (opts.configPath) {
+    const idx = process.argv.indexOf('--config');
+    if (idx !== -1) { process.argv[idx + 1] = opts.configPath; }
+    else            { process.argv.push('--config', opts.configPath); }
+  }
+  return main();
+}
+
+// Auto-run when executed directly: node server.mjs
+const isMain = process.argv[1] &&
+  path.resolve(process.argv[1]) === path.resolve(fileURLToPath(import.meta.url));
+
+if (isMain) {
+  main().catch(err => { console.error(err); process.exit(1); });
+}

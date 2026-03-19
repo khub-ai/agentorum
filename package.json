@@ -3,13 +3,28 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
+  "main": "packages/electron/main.mjs",
   "workspaces": [
     "packages/*"
   ],
   "scripts": {
-    "start": "node packages/server/server.mjs --open",
-    "start:vc-debate": "node packages/server/server.mjs --config examples/vc-debate/agentorum.config.json --open",
-    "start:policy": "node packages/server/server.mjs --config examples/policy-mediation/agentorum.config.json --open"
+    "start":             "node packages/server/server.mjs --open",
+    "start:vc-debate":   "node packages/server/server.mjs --config examples/vc-debate/agentorum.config.json --open",
+    "start:policy":      "node packages/server/server.mjs --config examples/policy-mediation/agentorum.config.json --open",
+
+    "electron:dev":      "electron packages/electron/main.mjs",
+    "electron:dev:vc":   "electron packages/electron/main.mjs --config examples/vc-debate/agentorum.config.json",
+    "electron:build":    "electron-builder --config electron-builder.yml",
+    "electron:build:win":"electron-builder --config electron-builder.yml --win",
+    "electron:build:mac":"electron-builder --config electron-builder.yml --mac",
+    "electron:build:linux":"electron-builder --config electron-builder.yml --linux"
+  },
+  "devDependencies": {
+    "electron":         "^33.0.0",
+    "electron-builder": "^25.0.0"
+  },
+  "dependencies": {
+    "ws": "^8.17.0"
   },
   "engines": {
     "node": ">=18.0.0"

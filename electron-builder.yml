@@ -1,0 +1,69 @@
+# Agentorum — electron-builder configuration
+# Build: npm run electron:build
+# Produces platform installers in ./dist/
+
+appId:       ai.khub.agentorum
+productName: Agentorum
+
+copyright: "Copyright © 2025-2026 KHUB-AI. Open source under MIT License."
+
+# Keep files as a plain directory — no asar — so the server can spawn
+# child processes (agent watchers) that read files from real disk paths.
+asar: false
+
+directories:
+  output: dist
+
+files:
+  - packages/server/**
+  - packages/watcher/**
+  - packages/electron/**
+  - "!packages/electron/assets/*.icns"   # excluded on non-mac builds (overridden per-platform)
+  - "!**/node_modules/**"
+  - node_modules/ws/**                   # only runtime dependency
+
+extraMetadata:
+  main: packages/electron/main.mjs
+
+# ---------------------------------------------------------------------------
+# Windows — NSIS installer (.exe)
+# ---------------------------------------------------------------------------
+win:
+  target:
+    - target: nsis
+      arch:
+        - x64
+        - arm64
+  icon: packages/electron/assets/icon.ico
+
+nsis:
+  oneClick:                      false
+  perMachine:                    false
+  allowToChangeInstallationDirectory: true
+  createDesktopShortcut:         true
+  createStartMenuShortcut:       true
+  shortcutName:                  Agentorum
+
+# ---------------------------------------------------------------------------
+# macOS — DMG disk image
+# ---------------------------------------------------------------------------
+mac:
+  target:
+    - target: dmg
+      arch:
+        - x64
+        - arm64
+  icon:     packages/electron/assets/icon.icns
+  category: public.app-category.productivity
+
+dmg:
+  title: "Agentorum ${version}"
+
+# ---------------------------------------------------------------------------
+# Linux — AppImage (runs on any distro without install)
+# ---------------------------------------------------------------------------
+linux:
+  target:
+    - AppImage
+  icon:     packages/electron/assets/icon.png
+  category: Office
