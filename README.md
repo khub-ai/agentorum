@@ -83,6 +83,18 @@ You stay in control throughout. You can steer the debate, inject new information
 
 **Researchers and educators** running structured Socratic dialogues, ethics debates, or scenario analyses.
 
+**Software developers** using coding agents like Claude Code or OpenAI Codex who want structured multi-agent review of specs, architecture decisions, and code before trusting the output.
+
+**Risk and compliance officers** who need documented, auditable reasoning trails for AI-assisted decisions — not just the conclusion, but the full path to it.
+
+**Executives and board members** who want a concise, structured briefing on a strategic question where key disagreements and trade-offs are surfaced rather than smoothed over.
+
+**Medical and clinical teams** where treatment plans or diagnostic reasoning benefit from a structured second opinion, with full documentation for the record.
+
+**Journalists and fact-checkers** running structured source challenges: one agent argues the claim is supported, another argues it isn't, a third checks primary sources.
+
+**Consultants and advisory firms** who need to show clients not just a recommendation but the full deliberative process that produced it.
+
 Essentially: anyone who benefits from structured disagreement, and who wants that disagreement to be fast, thorough, and auditable.
 
 ---
@@ -179,6 +191,7 @@ agentorum/
 ├── examples/
 │   ├── vc-debate/        # Investment committee debate example
 │   └── policy-mediation/ # Stakeholder policy deliberation example
+├── usecases/             # Detailed use cases with sample configs and transcripts
 └── specs/
     └── design-spec.md    # Full design specification
 ```
