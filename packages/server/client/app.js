@@ -291,10 +291,19 @@ function renderFilterAuthors() {
     const dot = document.createElement('span');
     dot.className = 'author-dot';
     dot.style.background = participantColor(id);
-    const displayName = participantName(id);
+    const p = serverConfig.participants?.find(p => p.id === id);
+    const isHuman = p?.agent === 'human' || p?.type === 'human';
+    const displayLabel = p?.label || p?.name || id;
+    const displayName  = displayLabel !== id ? `${displayLabel} (${id})` : id;
     label.appendChild(cb);
     label.appendChild(dot);
     label.appendChild(document.createTextNode(` ${displayName}`));
+    if (isHuman) {
+      const you = document.createElement('span');
+      you.textContent = ' ← you';
+      you.style.cssText = 'font-size:0.75em;opacity:0.55;font-style:italic;';
+      label.appendChild(you);
+    }
     el.appendChild(label);
   });
 }
