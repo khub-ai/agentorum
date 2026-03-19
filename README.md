@@ -212,6 +212,51 @@ agentorum/                        (repo)
 
 ---
 
+## Getting started
+
+### Prerequisites
+
+- [Node.js 18+](https://nodejs.org/) — the only required installation
+- An API key for at least one LLM (Claude, OpenAI, or a local Ollama model)
+
+### Run
+
+```bash
+git clone https://github.com/khub-ai/agentorum.git
+cd agentorum
+npm install
+node packages/server/server.mjs --open
+```
+
+This opens the project browser at `http://localhost:3737`. Create a project, pick a scenario, and start a session.
+
+> **Windows users — if `npm start` gives a security error in PowerShell:**
+>
+> PowerShell may block npm because the script is not digitally signed. Use either of these instead:
+>
+> ```powershell
+> # Option A — run directly with node (recommended, always works):
+> node packages/server/server.mjs --open
+>
+> # Option B — unblock npm once and for all:
+> Unblock-File "$(where.exe npm | Select-Object -First 1)"
+> # then npm start will work normally going forward
+> ```
+>
+> This is a Windows security policy quirk, not an Agentorum issue. The Electron desktop installer (coming soon) will not have this problem.
+
+### Try a built-in example directly
+
+```bash
+# VC investment debate
+node packages/server/server.mjs --config examples/vc-debate/agentorum.config.json --open
+
+# Policy deliberation
+node packages/server/server.mjs --config examples/policy-mediation/agentorum.config.json --open
+```
+
+---
+
 ## License
 
 MIT
