@@ -44,6 +44,9 @@ Agent backends (Claude, GPT, Gemini, local models, humans), participant naming s
 **8. The format outlasts the GUI.**
 The chatlog must be readable and parseable in perpetuity with no special tooling. HTML comment metadata is invisible in rendered Markdown. The core format should be stable from v1.
 
+**9. Mandatory actions are never silent.**
+If the user must do something before the session will work correctly — initialize an agent, provide an API key, resolve a conflict — the UI must surface this as a blocking modal dialog, not a sidebar hint or passive label. Silent failures and missed setup steps are a primary cause of user frustration in developer tools. The rule: anything the user *must* do gets a modal; anything the user *may* do gets a panel or inline control. This principle applies to all future features.
+
 ---
 
 ## 3. Use Cases
