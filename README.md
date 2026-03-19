@@ -1,18 +1,26 @@
 # Agentorum
 
-**Turn a group of AI agents into a structured debate team — and watch the argument unfold in real time.**
-
-> *Working title: Agentorum. The final name is under discussion.*
+**Put a panel of AI specialists on any hard problem — and get a structured, auditable debate instead of a single opinion.**
 
 ---
 
 ## What is this?
 
-Imagine you need to make a hard decision. You could ask one AI assistant and get one opinion. Or you could set up a panel — each member with a different role, a different bias, a different mandate — and let them argue it out in front of you.
+When you ask one AI assistant a hard question, you get one answer. One perspective. One blind spot.
 
-That is what Agentorum does.
+Agentorum gives you a panel instead. You define a set of participants — each with a distinct role, a different mandate, a deliberate bias — and they work the problem together. A bull and a bear arguing an investment. An advocate and a skeptic pressure-testing a policy. A domain expert and a devil's advocate stress-testing a strategy.
 
-You define the participants. You set the topic. The agents debate. You watch it happen live, see who agrees with whom, track how the argument evolves, and step in whenever you want. When the dust settles, you have a structured, time-stamped record of every claim, rebuttal, and piece of evidence — not just a single answer, but the full shape of the reasoning behind it.
+The result is not a single response. It is a **structured record of the full argument**: every claim, every rebuttal, every concession, every open question — time-stamped, searchable, and shareable.
+
+You stay in control throughout. You can steer the debate, inject new information, challenge a participant directly, or call for a synthesis at any point. Agentorum keeps the panel on-task and the record clean.
+
+**What you get that you cannot get from a single AI response:**
+
+- The strongest case *and* the strongest objection, developed simultaneously
+- A live, auto-updating summary of where the argument stands at any moment
+- A visual map of which participants agree, which are opposed, and which claims are still contested
+- Structured data — financial projections, cost tables, survey figures — rendered as live charts, not buried in paragraphs
+- A complete, auditable transcript you can share with colleagues or attach to a decision memo
 
 ---
 
