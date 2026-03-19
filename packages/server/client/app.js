@@ -273,9 +273,12 @@ document.getElementById('btn-load-older').addEventListener('click', () => {
 // Filter sidebar
 // ---------------------------------------------------------------------------
 function renderFilterAuthors() {
-  const known = [...new Set(allEntries.map(e => e.author))];
-  const el    = document.getElementById('filter-authors');
-  el.innerHTML = '';
+  // Show all configured participants first, then any chatlog authors not in config
+  const configIds  = (serverConfig.participants || []).map(p => p.id);
+  const entryIds   = [...new Set(allEntries.map(e => e.author))];
+  const known      = [...new Set([...configIds, ...entryIds])];
+  const el         = document.getElementById('filter-authors');
+  el.innerHTML     = '';
   known.forEach(id => {
     const label = document.createElement('label');
     const cb    = document.createElement('input');
@@ -288,9 +291,10 @@ function renderFilterAuthors() {
     const dot = document.createElement('span');
     dot.className = 'author-dot';
     dot.style.background = participantColor(id);
+    const displayName = participantName(id);
     label.appendChild(cb);
     label.appendChild(dot);
-    label.appendChild(document.createTextNode(` ${id}`));
+    label.appendChild(document.createTextNode(` ${displayName}`));
     el.appendChild(label);
   });
 }
