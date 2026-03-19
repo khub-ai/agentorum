@@ -186,8 +186,25 @@ label { display: flex; align-items: center; gap: 6px; cursor: pointer; }
 }
 #compose-bar select    { width: 200px; }
 #compose-bar textarea  { width: 100%; resize: vertical; }
-#compose-actions       { display: flex; gap: 8px; }
+#compose-actions       { display: flex; gap: 8px; align-items: center; }
 #compose-preview       { padding: 8px; border: 1px solid var(--border); border-radius: var(--radius); background: var(--bg-card); }
+#btn-attach            { font-size: 16px; padding: 2px 4px; border: none; background: none; line-height: 1; }
+#compose-attachments   { display: flex; flex-wrap: wrap; gap: 6px; min-height: 0; }
+
+.attach-indicator {
+  font-size: 11px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: var(--badge-bg);
+  color: var(--text-muted);
+}
+.attach-indicator.done     { background: #16a34a22; color: #16a34a; border-color: #16a34a44; }
+.attach-indicator.error    { background: #dc262622; color: #dc2626; border-color: #dc262644; }
+.attach-indicator.uploading { animation: pulse-attach 1s ease-in-out infinite alternate; }
+@keyframes pulse-attach {
+  from { opacity: .5; } to { opacity: 1; }
+}
 
 /* ---------------------------------------------------------------------------
    Layout grid

@@ -30,9 +30,14 @@
   <select id="compose-author"></select>
   <textarea id="compose-body" rows="3" placeholder="Write your entry…"></textarea>
   <div id="compose-actions">
+    <label id="btn-attach" title="Attach image or video" style="cursor:pointer">
+      📎
+      <input type="file" id="compose-file" accept="image/*,video/*,.pdf" style="display:none">
+    </label>
     <button id="btn-preview-toggle">Preview</button>
     <button id="btn-post">Post</button>
   </div>
+  <div id="compose-attachments"></div>
   <div id="compose-preview" style="display:none"></div>
 </div>
 

@@ -405,7 +405,14 @@ function broadcast(msg) {
 // ---------------------------------------------------------------------------
 // HTTP helpers
 // ---------------------------------------------------------------------------
-const MIME = { '.html': 'text/html', '.js': 'application/javascript', '.css': 'text/css', '.svg': 'image/svg+xml', '.ico': 'image/x-icon' };
+const MIME = {
+  '.html': 'text/html', '.js': 'application/javascript', '.css': 'text/css',
+  '.svg': 'image/svg+xml', '.ico': 'image/x-icon',
+  '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg',
+  '.gif': 'image/gif', '.webp': 'image/webp',
+  '.mp4': 'video/mp4', '.webm': 'video/webm', '.mov': 'video/quicktime',
+  '.pdf': 'application/pdf'
+};
 
 function serveFile(res, filePath) {
   const ext  = path.extname(filePath);
@@ -706,6 +713,30 @@ async function handleRequest(req, res) {
         };
       });
     return jsonResp(res, { active: true, sessionDir, token: activeSessionToken, interactiveParticipants });
+  }
+
+  // --- /api/media/:filename — serve media files from session media folder ---
+  const mediaServeMatch = pathname.match(/^\/api\/media\/(.+)$/);
+  if (mediaServeMatch && method === 'GET') {
+    if (!activeConfigPath) return jsonResp(res, { error: 'no active session' }, 404);
+    const safeName = mediaServeMatch[1].replace(/\.\./g, '').replace(/^\/+/, '');
+    const mediaDir  = path.join(path.dirname(activeConfigPath), 'media');
+    const mediaPath = path.join(mediaDir, safeName);
+    if (!mediaPath.startsWith(mediaDir)) { res.writeHead(403); res.end(); return; }
+    return serveFile(res, mediaPath);
+  }
+
+  // --- /api/media/upload — save base64-encoded file to session media folder ---
+  if (pathname === '/api/media/upload' && method === 'POST') {
+    if (!activeConfigPath) return jsonResp(res, { error: 'no active session' }, 404);
+    const { filename, data } = JSON.parse(await readBody(req));
+    if (!filename || !data) return jsonResp(res, { error: 'missing filename or data' }, 400);
+    const safeName  = path.basename(filename).replace(/[^a-zA-Z0-9._-]/g, '_');
+    const mediaDir  = path.join(path.dirname(activeConfigPath), 'media');
+    await fsp.mkdir(mediaDir, { recursive: true });
+    const base64    = data.replace(/^data:[^;]+;base64,/, '');
+    await fsp.writeFile(path.join(mediaDir, safeName), Buffer.from(base64, 'base64'));
+    return jsonResp(res, { ok: true, filename: safeName, url: `/api/media/${safeName}` });
   }
 
   // --- /api/context/:participantId — role-aware context snippet for interactive agents ---

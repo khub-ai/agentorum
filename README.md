@@ -2,6 +2,8 @@
 
 **The open-source, no-code platform for structured multi-agent debate — with purpose-built visualization, live data charts, full audit trail, and human-in-the-loop control. Runs out of the box, no additional software or coding required. Just bring your LLM API key. Free forever.**
 
+→ **[See the full roadmap and tell us what to build next](ROADMAP.md)**
+
 ---
 
 ## How Agentorum is different

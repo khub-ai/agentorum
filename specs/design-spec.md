@@ -975,6 +975,77 @@ One click on "Start" resolves the config, writes the session folder, and opens t
 
 ---
 
+## 17. Multimodal Support
+
+Agentorum is designed to handle multimodal content — images, video, and other binary media — alongside text. This section records the design decisions and implementation layers.
+
+### Chatlog format
+
+The chatlog format is already multimodal-friendly. Entry bodies are Markdown, which natively supports image references:
+
+```
+![System architecture diagram](./media/arch-diagram.png)
+```
+
+Local media files are stored in a `media/` subfolder within the session directory. The server serves them at `/api/media/:filename`. This keeps the chatlog as human-readable plain text — binary data is never embedded in the file.
+
+For video, a custom syntax avoids the ambiguity of Markdown's `![]()` image syntax:
+
+```
+@[video](./media/demo.mp4)
+```
+
+The client-side marked renderer converts this to a `<video controls>` element. This syntax is intentionally distinct from the `@key: value` metadata lines used at the top of entries (video references appear in the body, not the header block).
+
+### Media serving
+
+`GET /api/media/:filename` — serves files from `sessions/<id>/media/`. Path traversal (`..`) is stripped. Only files within the session's own media folder are accessible.
+
+`POST /api/media/upload` — accepts `{ filename, data }` where `data` is a base64-encoded data URL (as produced by `FileReader.readAsDataURL()`). Decodes and writes to the media folder. Returns `{ ok, filename, url }`.
+
+### Compose area
+
+The compose bar has a 📎 attachment button. On file selection:
+1. File is read as base64 in the browser (no size limit enforced in v1 — document a reasonable guideline, e.g. < 20 MB).
+2. Uploaded via `POST /api/media/upload`.
+3. A Markdown reference (`![name](url)` for images, `@[video](url)` for video, `[name](url)` for PDF) is inserted at the cursor position in the textarea.
+4. A transient badge confirms the upload succeeded or reports failure.
+
+### Agent-side multimodal analysis
+
+This is the hard part. The current watcher builds a text-only prompt and pipes it to `claude --print` / `codex --full-auto` via stdin. These CLIs do not accept binary input. **Agent-side image or video analysis requires the `APIBackend`** (see Section 16) — direct HTTP calls to the Anthropic / OpenAI / Google APIs, which accept base64-encoded images in the messages array.
+
+The watcher would need to:
+1. Parse image references from the chatlog (`./media/*.{png,jpg,gif,webp}`)
+2. Read and base64-encode each referenced file
+3. Include them as image blocks in the LLM API messages array alongside the text prompt
+
+Until `APIBackend` is implemented, agents receive image references as text (the Markdown syntax) but cannot process the image content itself.
+
+### Video analysis
+
+| Backend | Native video input | Frame extraction needed |
+|---|---|---|
+| Gemini (Google AI API) | Yes | No |
+| Claude (Anthropic API) | No | Yes — extract frames via ffmpeg or js |
+| GPT-4o (OpenAI API) | No | Yes |
+
+Gemini is the simplest path for v1 video analysis. Frame extraction (for Claude/GPT-4o) is a v2+ item due to the ffmpeg dependency.
+
+### Implementation status
+
+| Feature | Status |
+|---|---|
+| External image URLs in entries | ✅ Works (marked.js renders `![]()`) |
+| Local media file serving (`/api/media/`) | ✅ Implemented |
+| File upload via compose bar | ✅ Implemented |
+| Video playback in UI (`@[video]()` syntax) | ✅ Implemented |
+| Agent-side image analysis | ⏳ Blocked on APIBackend (v2) |
+| Agent-side video analysis (Gemini native) | ⏳ Blocked on APIBackend (v2) |
+| Agent-side video analysis (frame extraction) | 🗓 v2+ |
+
+---
+
 ## 16. Hosted Service Architecture (future)
 
 A turn-key hosted service ("Agentorum Cloud") is a plausible v2+ direction for users who prefer convenience over control. This section records the forward-compatibility analysis and key architectural decisions.

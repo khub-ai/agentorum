@@ -566,6 +566,64 @@ function renderComposeAuthorOptions() {
   });
 }
 
+// ---------------------------------------------------------------------------
+// File attachment
+// ---------------------------------------------------------------------------
+document.getElementById('compose-file').addEventListener('change', async e => {
+  const file = e.target.files[0];
+  if (!file) return;
+  e.target.value = '';  // reset so same file can be re-selected
+
+  // Show uploading indicator
+  const attachments = document.getElementById('compose-attachments');
+  const indicator   = document.createElement('span');
+  indicator.className  = 'attach-indicator uploading';
+  indicator.textContent = `⏳ Uploading ${file.name}…`;
+  attachments.appendChild(indicator);
+
+  // Read as base64
+  const base64 = await new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload  = () => resolve(reader.result);
+    reader.onerror = reject;
+    reader.readAsDataURL(file);
+  });
+
+  const result = await api('/api/media/upload', 'POST', { filename: file.name, data: base64 });
+  indicator.remove();
+
+  if (!result?.ok) {
+    const err = document.createElement('span');
+    err.className   = 'attach-indicator error';
+    err.textContent = `❌ Upload failed: ${file.name}`;
+    attachments.appendChild(err);
+    setTimeout(() => err.remove(), 4000);
+    return;
+  }
+
+  // Insert Markdown reference at cursor
+  const textarea  = document.getElementById('compose-body');
+  const isVideo   = file.type.startsWith('video/');
+  const isPdf     = file.type === 'application/pdf';
+  let   mdRef;
+  if (isVideo)     mdRef = `\n@[video](${result.url})\n`;
+  else if (isPdf)  mdRef = `\n[${result.filename}](${result.url})\n`;
+  else             mdRef = `\n![${result.filename}](${result.url})\n`;
+
+  const start = textarea.selectionStart;
+  const end   = textarea.selectionEnd;
+  textarea.value = textarea.value.slice(0, start) + mdRef + textarea.value.slice(end);
+  textarea.selectionStart = textarea.selectionEnd = start + mdRef.length;
+  textarea.focus();
+
+  // Show thumbnail badge
+  const badge = document.createElement('span');
+  badge.className   = 'attach-indicator done';
+  badge.textContent = `✓ ${result.filename}`;
+  attachments.appendChild(badge);
+  setTimeout(() => badge.remove(), 5000);
+});
+
 document.getElementById('btn-preview-toggle').addEventListener('click', () => {
   const preview = document.getElementById('compose-preview');
   const body    = document.getElementById('compose-body').value;
@@ -668,6 +726,27 @@ async function api(path, method = 'GET', body = null) {
 }
 
 // ---------------------------------------------------------------------------
-// Boot
+// Custom marked renderer — @[video](url) → <video> element
 // ---------------------------------------------------------------------------
+function patchMarkedForVideo() {
+  if (typeof marked === 'undefined') return;
+  const renderer = new marked.Renderer();
+  const _paragraph = renderer.paragraph.bind(renderer);
+  renderer.paragraph = (token) => {
+    const text = typeof token === 'string' ? token : token.text || '';
+    // Match @[video](url) anywhere in the paragraph
+    const videoRe = /@\[video\]\(([^)]+)\)/g;
+    if (videoRe.test(text)) {
+      return text.replace(/@\[video\]\(([^)]+)\)/g, (_, url) =>
+        `<video controls style="max-width:100%;border-radius:4px;margin:.4em 0">` +
+        `<source src="${url}"><p><a href="${url}">Download video</a></p></video>`
+      );
+    }
+    return _paragraph(token);
+  };
+  marked.use({ renderer });
+}
+
+// Boot — patch marked once it is loaded (it loads via CDN after this module)
+window.addEventListener('load', patchMarkedForVideo);
 connect();
