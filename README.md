@@ -47,6 +47,8 @@ Here is what you concretely gain:
 
 **No lock-in, no cloud, no bill.** Your debate data lives in a plain-text file on your own machine. You can use any LLM you already have access to. Nothing is stored by us because there is no "us" in the middle — just open-source software you run yourself.
 
+**A force multiplier for coding agents.** When a single coding agent can generate more work than one human can realistically validate, bring in other agents to check it. Agentorum gives coding agents — Claude Code, OpenAI Codex, and others — a shared workspace to review each other's specs and code, catch edge cases, surface spec-vs-implementation mismatches, and challenge hidden assumptions before a human ever sees the result. One agent proposes; another critiques; a third checks against runtime behavior. What would otherwise be a team of ten starts to feel like a team of twenty — with the human acting as manager of the system rather than checker of every line. The shared debate log makes the process transparent: you can see exactly where agents disagree, where reasoning drifted, and where a human judgment call is needed. That visibility is itself a safety property, and may become mandatory for critical AI systems.
+
 ---
 
 ## What is this?
