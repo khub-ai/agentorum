@@ -1,6 +1,6 @@
 # Agentorum
 
-**The open-source, no-code platform for structured multi-agent debate — with purpose-built visualization, live data charts, full audit trail, and human-in-the-loop control. Free forever.**
+**The open-source, no-code platform for structured multi-agent debate — with purpose-built visualization, live data charts, full audit trail, and human-in-the-loop control. Runs out of the box, no additional software or coding required. Just bring your LLM API key. Free forever.**
 
 ---
 
@@ -8,18 +8,19 @@
 
 Every other multi-agent tool routes tasks through a pipeline. Agentorum runs a **debate**.
 
-| | Agentorum | Task-automation agents (Agentforce, Operator, Devin) | Pipeline agents (Superagent, CrewAI) | Spreadsheet AI (Airtable) |
-|---|---|---|---|---|
-| Multi-agent deliberation | **Yes — core purpose** | No — task handoff only | No — sequential execution | No |
-| Purpose-built debate GUI | **Yes** | No | No | No |
-| Thread tree + stance arc + position map | **Yes** | No | No | No |
-| Live data tables and charts | **Yes** | No | No | Native (but no debate) |
-| Human steers debate in real time | **Yes — first class** | Limited | Limited | Manual steps only |
-| Full auditable transcript | **Yes** | Session logs only | Basic run logs | Row history only |
-| Domain-agnostic | **Yes** | CRM / task-specific | General pipelines | Spreadsheet workflows |
-| Open-source and free | **Yes** | No | Partial | No |
+| | Agentorum | Task-automation agents (Agentforce, Operator, Devin) |
+|---|---|---|
+| Multi-agent deliberation | **Yes — core purpose** | No — task handoff only |
+| Purpose-built debate GUI | **Yes** | No |
+| Thread tree + stance arc + position map | **Yes** | No |
+| Live data tables and charts | **Yes** | No |
+| Human steers debate in real time | **Yes — first class** | Limited |
+| Full auditable transcript | **Yes** | Session logs only |
+| Runs out of the box, no coding required | **Yes** | No |
+| Domain-agnostic | **Yes** | Product- or CRM-specific |
+| Open-source and free | **Yes** | No |
 
-The closest rivals are strong in one dimension each — Airtable for data visualization, Salesforce for enterprise workflow, Superagent for no-code pipelines. Agentorum is the only tool that combines structured deliberation, rich visualization, and open-source freedom in a single package aimed at non-technical users.
+Agentorum is the only tool that combines structured deliberation, rich visualization, zero-coding setup, and open-source freedom in a single package aimed at non-technical users.
 
 ---
 
