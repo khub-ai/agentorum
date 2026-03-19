@@ -1,0 +1,106 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Agentorum</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<!-- ── Top bar ─────────────────────────────────────────────────────────── -->
+<header id="topbar">
+  <div id="topbar-left">
+    <span id="logo">⬡ Agentorum</span>
+    <div id="participant-pills"></div>
+  </div>
+  <div id="topbar-right">
+    <input id="search-input" type="search" placeholder="Search…" autocomplete="off">
+    <button id="btn-compose-toggle" title="New entry">✏️</button>
+    <button id="btn-settings" title="Settings">⚙</button>
+  </div>
+</header>
+
+<!-- ── New-entry badge ──────────────────────────────────────────────────── -->
+<div id="new-badge" style="display:none"></div>
+
+<!-- ── Compose area ─────────────────────────────────────────────────────── -->
+<div id="compose-bar" style="display:none">
+  <select id="compose-author"></select>
+  <textarea id="compose-body" rows="3" placeholder="Write your entry…"></textarea>
+  <div id="compose-actions">
+    <button id="btn-preview-toggle">Preview</button>
+    <button id="btn-post">Post</button>
+  </div>
+  <div id="compose-preview" style="display:none"></div>
+</div>
+
+<!-- ── Main layout ──────────────────────────────────────────────────────── -->
+<div id="layout">
+
+  <!-- Left: filters -->
+  <aside id="sidebar">
+    <h3>Participants</h3>
+    <div id="filter-authors"></div>
+
+    <h3>Date range</h3>
+    <label>From <input type="date" id="filter-from"></label>
+    <label>To   <input type="date" id="filter-to"></label>
+
+    <h3>Show</h3>
+    <label><input type="checkbox" id="filter-new-only"> New only (this session)</label>
+
+    <div id="collapse-controls">
+      <button id="btn-expand-all">Expand all</button>
+      <button id="btn-collapse-all">Collapse all</button>
+      <button id="btn-collapse-old">Collapse before…</button>
+    </div>
+  </aside>
+
+  <!-- Centre: chatlog -->
+  <main id="chatlog">
+    <div id="load-older-wrap" style="display:none">
+      <button id="btn-load-older">Load older entries</button>
+    </div>
+    <div id="entries"></div>
+  </main>
+
+  <!-- Right: participants & automation -->
+  <aside id="agents-panel">
+    <h3>Agents</h3>
+    <div id="agent-cards"></div>
+
+    <h3>Automation</h3>
+    <div id="rules-list"></div>
+    <button id="btn-add-rule">+ Add rule</button>
+  </aside>
+
+</div>
+
+<!-- ── Log drawer ───────────────────────────────────────────────────────── -->
+<div id="log-drawer" style="display:none">
+  <div id="log-drawer-header">
+    <span id="log-drawer-title">Logs</span>
+    <button id="btn-close-log">✕</button>
+  </div>
+  <pre id="log-content"></pre>
+</div>
+
+<!-- ── Config modal ─────────────────────────────────────────────────────── -->
+<div id="config-modal" style="display:none">
+  <div id="config-modal-inner">
+    <h2>Settings</h2>
+    <label>Chatlog path<input type="text" id="cfg-chatlog"></label>
+    <label>Port<input type="number" id="cfg-port"></label>
+    <div id="config-actions">
+      <button id="btn-cfg-save">Save</button>
+      <button id="btn-cfg-cancel">Cancel</button>
+    </div>
+  </div>
+</div>
+
+<script type="module" src="app.js"></script>
+<!-- Markdown renderer (no build step required) -->
+<script src="https://cdn.jsdelivr.net/npm/marked@12/marked.min.js"></script>
+</body>
+</html>

@@ -1,0 +1,17 @@
+{
+  "name": "agentorum",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "workspaces": [
+    "packages/*"
+  ],
+  "scripts": {
+    "start": "node packages/server/server.mjs --open",
+    "start:vc-debate": "node packages/server/server.mjs --config examples/vc-debate/agentorum.config.json --open",
+    "start:policy": "node packages/server/server.mjs --config examples/policy-mediation/agentorum.config.json --open"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}

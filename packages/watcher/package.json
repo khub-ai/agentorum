@@ -1,0 +1,9 @@
+{
+  "name": "@agentorum/watcher",
+  "version": "0.1.0",
+  "type": "module",
+  "main": "watch.mjs",
+  "scripts": {
+    "start": "node watch.mjs"
+  }
+}
