@@ -320,46 +320,70 @@ The GUI uses `SYNTH` entries as anchor points for the debate summary panel. The 
 ### 7.1 Package Structure
 
 ```
-agentorum/
+agentorum/                             ← repo root
 ├── packages/
-│   ├── server/           # @agentorum/server
-│   │   ├── server.mjs    # HTTP + WebSocket server, ChatlogWatcher, AgentManager, AutomationEngine
-│   │   └── package.json  # dep: ws only
-│   ├── watcher/          # @agentorum/watcher
-│   │   ├── watch.mjs     # Cross-platform file watcher + agent invocation loop
-│   │   └── package.json  # no external deps
-│   └── client/           # @agentorum/client
-│       ├── index.html
-│       ├── app.js        # Vanilla JS, ES modules, no build step
-│       ├── style.css
+│   ├── server/                        # @agentorum/server
+│   │   ├── server.mjs                 # HTTP + WebSocket server, ChatlogWatcher, AgentManager, AutomationEngine
+│   │   └── package.json               # dep: ws only
+│   ├── watcher/                       # @agentorum/watcher
+│   │   ├── watch.mjs                  # Cross-platform file watcher + agent invocation loop
+│   │   └── package.json               # no external deps
+│   ├── client/                        # @agentorum/client
+│   │   ├── index.html                 # Project browser home screen
+│   │   ├── session.html               # Session (debate) view
+│   │   ├── app.js                     # Vanilla JS, ES modules, no build step
+│   │   ├── style.css
+│   │   └── package.json
+│   └── desktop/                       # @agentorum/desktop (Electron shell)
+│       ├── main.js                    # Launches server + opens BrowserWindow
 │       └── package.json
+├── scenarios/                         # Built-in reusable scenario templates
+│   ├── vc-debate.scenario.json
+│   ├── policy-mediation.scenario.json
+│   └── code-review.scenario.json
 ├── examples/
-│   ├── vc-debate/        # Complete VC investment debate example
-│   │   ├── ui-config.json
+│   ├── vc-debate/                     # Runnable VC debate example
+│   │   ├── agentorum.config.json
 │   │   ├── rules.txt
 │   │   └── README.md
-│   └── policy-mediation/ # Stakeholder policy deliberation example
-│       ├── ui-config.json
+│   └── policy-mediation/              # Runnable policy mediation example
+│       ├── agentorum.config.json
 │       ├── rules.txt
 │       └── README.md
+├── usecases/                          # Detailed use cases with sample results
 ├── specs/
-│   └── design-spec.md    # This document
-├── package.json          # npm workspaces root
+│   └── design-spec.md                 # This document
+├── package.json                       # npm workspaces root
 └── README.md
 ```
 
-Consuming projects install the packages:
+**User workspace** (outside the repo, on the user's machine):
 
-```json
-{
-  "dependencies": {
-    "@agentorum/server": "^1.0.0",
-    "@agentorum/watcher": "^1.0.0"
-  }
-}
 ```
-
-and provide a thin launcher + config file pointing at their chatlog path and participant definitions. The client is served as static files by the server; consuming projects do not need to copy it.
+~/.agentorum/                          ← workspace root (configurable)
+├── workspace.json                     ← workspace name, created date, settings
+├── scenarios/                         ← user-defined scenario templates (added to built-ins)
+│   └── my-custom-debate.scenario.json
+└── projects/
+    ├── vc-portfolio-q1-2026/
+    │   ├── project.json               ← name, description, default scenario ref
+    │   └── sessions/
+    │       ├── techco-series-a/
+    │       │   ├── session.json       ← name, created, scenario used, override fields
+    │       │   ├── chatlog.md
+    │       │   └── agentorum.config.json  ← resolved config (scenario + overrides merged)
+    │       └── biospark-series-b/
+    │           ├── session.json
+    │           ├── chatlog.md
+    │           └── agentorum.config.json
+    └── policy-review-2026/
+        ├── project.json
+        └── sessions/
+            └── data-retention-reg/
+                ├── session.json
+                ├── chatlog.md
+                └── agentorum.config.json
+```
 
 ### 7.2 Server Components
 
@@ -711,9 +735,19 @@ Automation rules define when a participant is triggered automatically. Each rule
 | npm workspace package structure | ✓ | | |
 | VC debate example | ✓ | | |
 | Policy mediation example | ✓ | | |
+| Workspace / Project / Session hierarchy | ✓ | | See Section 14 |
+| Built-in scenarios (vc-debate, policy, code-review) | ✓ | | |
+| Scenario inheritance + per-session overrides | ✓ | | |
+| Project browser home screen | ✓ | | |
+| Session list + new session wizard | ✓ | | |
+| User-defined custom scenarios | ✓ | | |
+| Electron desktop app (Windows/macOS/Linux) | ✓ | | See Section 13.2 |
+| PWA manifest + responsive mobile layout | ✓ | | See Section 13.1 |
 | Stance arc visualization | spec | ✓ impl | |
 | Position map (force graph) | | ✓ | |
 | Cross-entry chart comparison | | ✓ | |
+| Cross-session search within a project | | ✓ | |
+| Session export (PDF, shareable HTML) | | ✓ | |
 | Metadata UI (display, filter, edit) | filter only | ✓ full | |
 | Multi-user / auth | | ✓ | |
 | Network-exposed mode | | ✓ | |
@@ -777,11 +811,156 @@ Rationale:
 
 ---
 
+## 14. Workspace / Project / Session Model
+
+### 14.1 Three-Level Hierarchy
+
+Agentorum organises user data in three levels:
+
+| Level | Concept | Analogy |
+|---|---|---|
+| **Workspace** | Root folder on disk. One per user. | Documents folder |
+| **Project** | A collection of related sessions. | Case file / portfolio |
+| **Session** | One focused debate on one specific topic. | Meeting / hearing |
+
+Each session is independent, append-only, and git-friendly. A project is a folder; a workspace is a folder of project folders. No database, no proprietary format.
+
+### 14.2 Scenarios
+
+A **scenario** is a reusable template that defines:
+- The participant roster (IDs, labels, colors, stances, system prompts)
+- The default automation rules
+- The default `rules.txt` content
+- Optional domain metadata (name, description, icon)
+
+Scenarios are stored as `*.scenario.json` files. Built-in scenarios ship with the app (in `scenarios/` at the repo root). User-defined scenarios live in `~/.agentorum/scenarios/` and are addable through the GUI.
+
+**Built-in scenarios (v1):**
+
+| File | Description |
+|---|---|
+| `vc-debate.scenario.json` | VC investment panel: BULL-VC, BEAR-VC, DUE-DIL, SYNTH, PARTNER |
+| `policy-mediation.scenario.json` | Policy stakeholder panel: ECON, CIVIL, INFRA, SYNTH, ANALYST |
+| `code-review.scenario.json` | Coding agent review: ARCHITECT, CRITIC, QA, SYNTH, DEV |
+
+### 14.3 Inheritance and Overrides (decided)
+
+Configuration flows from scenario → project → session. Each level can override any field from the level above.
+
+```
+scenario.json          (template defaults)
+    ↓ merged with
+project.json           (project-level overrides, e.g. default LLM backend)
+    ↓ merged with
+session/session.json   (session-level overrides, e.g. custom system prompt for one participant)
+    ↓ resolved to
+session/agentorum.config.json   (fully merged config, written at session creation)
+```
+
+**Rules:**
+- Any field present in `session.json` overrides the same field in `project.json` and the scenario.
+- Any field present in `project.json` overrides the same field in the scenario.
+- Fields absent at a lower level are inherited from the level above verbatim.
+- `agentorum.config.json` is the resolved merge and is what the server reads. It is regenerated whenever overrides change.
+- The scenario reference is stored as a string ID (e.g., `"vc-debate"`), not a file copy. Updating a scenario does not retroactively change existing sessions (sessions are pinned to the resolved config at creation time).
+
+### 14.4 Data Files
+
+**`workspace.json`**
+```json
+{
+  "name": "My Agentorum Workspace",
+  "created": "2026-03-19T00:00:00Z",
+  "defaultProjectsDir": "~/.agentorum/projects"
+}
+```
+
+**`project.json`**
+```json
+{
+  "id": "vc-portfolio-q1-2026",
+  "name": "VC Portfolio Q1 2026",
+  "description": "Series A evaluations for Q1 pipeline.",
+  "defaultScenario": "vc-debate",
+  "overrides": {
+    "participants": [
+      { "id": "BULL-VC", "backend": "openai" }
+    ]
+  },
+  "created": "2026-03-19T00:00:00Z"
+}
+```
+
+**`session.json`**
+```json
+{
+  "id": "techco-series-a",
+  "name": "TechCo Series A — March 19",
+  "scenario": "vc-debate",
+  "created": "2026-03-19T14:00:00Z",
+  "lastActive": "2026-03-19T15:42:00Z",
+  "entryCount": 23,
+  "overrides": {
+    "participants": [
+      {
+        "id": "BEAR-VC",
+        "systemPrompt": "Be especially critical of enterprise GTM assumptions."
+      }
+    ]
+  }
+}
+```
+
+### 14.5 GUI: Project Browser (Home Screen)
+
+The home screen replaces the current "open chatlog" flow. It shows:
+
+- **Workspace name** and settings gear
+- **Project cards** — name, description, session count, last active date, default scenario badge
+- **"New project" button** — prompts for name, description, default scenario
+- **Search/filter bar** — filter projects by name or scenario type
+
+Clicking a project opens the **Session list**:
+
+- Sessions listed as rows: name, scenario badge, entry count, last active, one-line summary (from most recent SYNTH entry)
+- **"New session" button** — opens the New Session wizard
+- Sessions are sorted by last active date by default
+
+### 14.6 GUI: New Session Wizard
+
+Three steps:
+
+1. **Pick a scenario** — grid of scenario cards (built-in + user-defined); each card shows name, participant roster preview, and description. "Start blank" option available.
+2. **Name the session** — text field for session name; optional description.
+3. **Customise (optional)** — expandable panel showing inherited participant config; any field can be overridden here. Changes are saved to `session.json` overrides only — the scenario is not modified.
+
+One click on "Start" resolves the config, writes the session folder, and opens the Session view.
+
+### 14.7 v1 Scope for This Feature
+
+| Feature | v1 | v2+ |
+|---|---|---|
+| Workspace root folder + `workspace.json` | ✓ | |
+| Project folder + `project.json` | ✓ | |
+| Session folder + `session.json` + resolved config | ✓ | |
+| Built-in scenarios (vc-debate, policy, code-review) | ✓ | |
+| Scenario inheritance + override merge | ✓ | |
+| Project browser home screen | ✓ | |
+| Session list view with last-active + entry count | ✓ | |
+| New session wizard (pick scenario, name, optional overrides) | ✓ | |
+| User-defined custom scenarios (GUI editor) | ✓ | |
+| Cross-session search within a project | | ✓ |
+| Cross-project dashboard / activity feed | | ✓ |
+| Session comparison (two sessions side by side) | | ✓ |
+| Session export (PDF, shareable HTML) | | ✓ |
+
+---
+
 ## 15. Open Questions
 
-**Repo name:** Working name is `khub-devchat`. Candidate: `agentorum` (no existing npm package; clearly signals multi-agent forum/deliberation; avoids coding-centric read of "devchat"). Decision pending.
+**Repo name:** Decided — `agentorum`, under the `khub-ai` GitHub organisation. Full URL: `https://github.com/khub-ai/agentorum`.
 
-**NPM scope:** `@khub/agentorum` or `@agentorum/server` etc. Depends on whether this lives under the khub org or as a standalone org.
+**NPM scope:** `@agentorum/server`, `@agentorum/watcher`, `@agentorum/client`, `@agentorum/desktop`. Decided — use the `@agentorum` scope for clean separation from the khub-ai org name.
 
 **Chatlog migration:** When the format evolves (e.g., adding new reserved metadata fields), existing chatlogs must remain parseable. The parser must be lenient: unknown metadata fields are preserved verbatim, not stripped. This must be a hard constraint from v1.
 

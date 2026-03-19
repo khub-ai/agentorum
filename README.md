@@ -183,17 +183,31 @@ Early development. The core protocol and GUI foundation are being built now. The
 ## Project structure
 
 ```
-agentorum/
+agentorum/                        (repo)
 ├── packages/
-│   ├── server/       # Node.js backend: HTTP + WebSocket server, agent orchestration
-│   ├── watcher/      # File watcher: monitors chatlog, triggers agents
-│   └── client/       # Browser GUI: real-time dashboard
+│   ├── server/                   # Node.js backend: HTTP + WebSocket server, agent orchestration
+│   ├── watcher/                  # File watcher: monitors chatlog, triggers agents
+│   ├── client/                   # Browser GUI: project browser + session dashboard
+│   └── desktop/                  # Electron shell: single-click desktop app
+├── scenarios/                    # Built-in reusable debate templates
+│   ├── vc-debate.scenario.json
+│   ├── policy-mediation.scenario.json
+│   └── code-review.scenario.json
 ├── examples/
-│   ├── vc-debate/        # Investment committee debate example
-│   └── policy-mediation/ # Stakeholder policy deliberation example
-├── usecases/             # Detailed use cases with sample configs and transcripts
+│   ├── vc-debate/                # Runnable investment committee example
+│   └── policy-mediation/         # Runnable stakeholder policy example
+├── usecases/                     # Detailed use cases with sample configs and transcripts
 └── specs/
-    └── design-spec.md    # Full design specification
+    └── design-spec.md            # Full design specification
+
+~/.agentorum/                     (user workspace, on your machine)
+├── scenarios/                    # Your custom debate templates
+└── projects/
+    └── my-project/
+        └── sessions/
+            └── my-session/
+                ├── chatlog.md    # The debate — plain text, yours forever
+                └── ...
 ```
 
 ---
