@@ -406,6 +406,104 @@ document.getElementById('sess-name').addEventListener('keydown', (e) => {
 });
 
 // ---------------------------------------------------------------------------
+// Bundle loading
+// ---------------------------------------------------------------------------
+
+let successTimer = null;
+function showSuccess(message) {
+  const toast = document.getElementById('success-toast');
+  toast.textContent = message;
+  toast.style.display = 'block';
+  clearTimeout(successTimer);
+  successTimer = setTimeout(() => { toast.style.display = 'none'; }, 3000);
+}
+
+function showBundleError(message) {
+  document.getElementById('bundle-error-message').textContent = message;
+  showModal('modal-bundle-error');
+}
+
+async function loadBundleFromObject(bundle) {
+  setLoading(true);
+  try {
+    const result = await api('/api/bundles/load', 'POST', bundle);
+    if (result && result.redirectTo) {
+      showSuccess('Session created from bundle — opening...');
+      setTimeout(() => { window.location = result.redirectTo; }, 800);
+    }
+  } catch (err) {
+    setLoading(false);
+    showBundleError(err.message || 'Failed to load bundle');
+  }
+}
+
+async function handleBundleFile(file) {
+  if (!file || !file.name.endsWith('.json')) {
+    showBundleError('Please select a .json bundle file.');
+    return;
+  }
+  try {
+    const text   = await file.text();
+    const bundle = JSON.parse(text);
+    await loadBundleFromObject(bundle);
+  } catch (err) {
+    showBundleError(`Invalid bundle format: ${err.message}`);
+  }
+}
+
+// "Load Bundle" button → file picker
+document.getElementById('btn-load-bundle').addEventListener('click', () => {
+  document.getElementById('bundle-file-input').click();
+});
+
+document.getElementById('bundle-file-input').addEventListener('change', (e) => {
+  const file = e.target.files[0];
+  e.target.value = ''; // reset so same file can be re-selected
+  if (file) handleBundleFile(file);
+});
+
+// Bundle error modal close via [data-close]
+document.querySelectorAll('[data-close="modal-bundle-error"]').forEach(btn => {
+  btn.addEventListener('click', () => closeModal('modal-bundle-error'));
+});
+document.getElementById('modal-bundle-error').addEventListener('click', (e) => {
+  if (e.target === e.currentTarget) closeModal('modal-bundle-error');
+});
+
+// Drag-and-drop onto the home screen
+let _dragCounter = 0;
+const dropOverlay = document.getElementById('bundle-drop-overlay');
+
+document.addEventListener('dragenter', (e) => {
+  // Only respond to file drags that include JSON
+  const hasFiles = e.dataTransfer && e.dataTransfer.types && e.dataTransfer.types.includes('Files');
+  if (!hasFiles) return;
+  _dragCounter++;
+  if (_dragCounter === 1) dropOverlay.style.display = 'flex';
+});
+
+document.addEventListener('dragleave', (e) => {
+  _dragCounter--;
+  if (_dragCounter <= 0) {
+    _dragCounter = 0;
+    dropOverlay.style.display = 'none';
+  }
+});
+
+document.addEventListener('dragover', (e) => {
+  e.preventDefault(); // required to allow drop
+});
+
+document.addEventListener('drop', (e) => {
+  e.preventDefault();
+  _dragCounter = 0;
+  dropOverlay.style.display = 'none';
+
+  const file = e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files[0];
+  if (file) handleBundleFile(file);
+});
+
+// ---------------------------------------------------------------------------
 // Initialisation
 // ---------------------------------------------------------------------------
 async function init() {

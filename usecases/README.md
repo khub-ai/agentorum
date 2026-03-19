@@ -7,17 +7,19 @@ Each use case includes:
 - **Sample transcript** — an annotated excerpt showing how the debate unfolds
 - **Output** — the structured summary, data tables, and charts produced
 
-## Planned use cases
+## Use cases
 
-| Use case | Domain | Status |
-|---|---|---|
-| VC investment committee | Venture capital / finance | In progress |
-| Policy deliberation | Government / regulatory | In progress |
-| Architecture review | Software engineering | Planned |
-| Clinical second opinion | Healthcare | Planned |
-| Fact-checking panel | Journalism | Planned |
-| M&A due diligence | Corporate finance | Planned |
-| Product strategy review | Product management | Planned |
-| Legal brief challenge | Legal | Planned |
+| Use case | Domain | Bundle | Status |
+|---|---|---|---|
+| [Software Development Review](./software-dev-review/) | Software engineering | `software-dev-review.bundle.json` | ✅ Ready |
+| VC investment committee | Venture capital / finance | coming soon | In progress |
+| Policy deliberation | Government / regulatory | coming soon | In progress |
+| Clinical second opinion | Healthcare | coming soon | Planned |
+| Fact-checking panel | Journalism | coming soon | Planned |
+| M&A due diligence | Corporate finance | coming soon | Planned |
+| Product strategy review | Product management | coming soon | Planned |
+| Legal brief challenge | Legal | coming soon | Planned |
+
+Each ready use case includes a **bundle file** — a single JSON file you load into Agentorum to set up the entire session automatically, with no config editing required.
 
 Contributions welcome — if you have a use case you would like to see documented, open an issue.

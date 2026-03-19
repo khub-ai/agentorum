@@ -1,0 +1,104 @@
+{
+  "bundleVersion": 1,
+  "id": "software-dev-review",
+  "name": "Software Development Review",
+  "description": "Multi-agent code and spec review with Claude Code and OpenAI Codex",
+  "icon": "💻",
+  "prerequisites": [
+    "Node.js 18+",
+    "Claude Code CLI (claude --version)",
+    "OpenAI Codex CLI (codex --version)"
+  ],
+  "project": {
+    "name": "Software Development Review",
+    "description": "Multi-agent code review using Claude Code and OpenAI Codex"
+  },
+  "scenario": {
+    "id": "software-dev-review",
+    "name": "Software Development Review",
+    "participants": [
+      {
+        "id": "HUMAN",
+        "label": "Developer",
+        "color": "#555555",
+        "agent": "human",
+        "stance": "neutral"
+      },
+      {
+        "id": "CLAUDE-DEV",
+        "label": "Claude Code",
+        "color": "#D97757",
+        "agent": "claude",
+        "stance": "neutral",
+        "respondTo": ["HUMAN", "CODEX-DEV", "ARCHITECT", "CRITIC"],
+        "systemPrompt": "You are Claude Code, an AI coding agent participating in a structured code review. Review all code, specs, and feedback in the shared log. Identify bugs, design issues, spec-vs-implementation mismatches, and missing edge cases. Be specific — cite line numbers, function names, or spec sections. Keep responses focused and under 300 words."
+      },
+      {
+        "id": "CODEX-DEV",
+        "label": "OpenAI Codex",
+        "color": "#10A37F",
+        "agent": "codex",
+        "stance": "neutral",
+        "respondTo": ["HUMAN", "CLAUDE-DEV", "ARCHITECT", "CRITIC"],
+        "systemPrompt": "You are OpenAI Codex, an AI coding agent participating in a structured code review. Review all code, specs, and feedback in the shared log. Independently assess correctness, security, and maintainability. Do not simply agree with Claude Code — form your own view. Be specific and concise, under 300 words."
+      },
+      {
+        "id": "ARCHITECT",
+        "label": "Architect",
+        "color": "#2D7DD2",
+        "agent": "claude",
+        "stance": "neutral",
+        "respondTo": ["HUMAN", "CLAUDE-DEV", "CODEX-DEV"],
+        "systemPrompt": "You are a senior software architect. Review architecture decisions, design patterns, scalability, and alignment with the stated spec or requirements. Identify structural issues that unit tests would not catch. Be specific and concise, under 300 words."
+      },
+      {
+        "id": "CRITIC",
+        "label": "Devil's Advocate",
+        "color": "#E63946",
+        "agent": "claude",
+        "stance": "bear",
+        "respondTo": ["HUMAN", "CLAUDE-DEV", "CODEX-DEV", "ARCHITECT"],
+        "systemPrompt": "You are a rigorous code critic. Find bugs, security vulnerabilities, edge cases, and hidden assumptions. Specifically look for places where Claude Code and Codex may have agreed on something that is actually wrong. Do not soften findings. Be specific, under 300 words."
+      },
+      {
+        "id": "SYNTH",
+        "label": "Synthesizer",
+        "color": "#8338EC",
+        "agent": "claude",
+        "stance": "synthesis",
+        "respondTo": [],
+        "systemPrompt": "You are a neutral synthesizer. When triggered, summarize: (1) issues found and their severity (critical/major/minor), (2) points of agreement between reviewers, (3) open questions requiring human judgment. Format as a structured list. Under 200 words."
+      }
+    ],
+    "automationRules": [
+      {
+        "id": "rule-1",
+        "enabled": true,
+        "label": "HUMAN → CLAUDE-DEV",
+        "trigger": { "type": "entry_from", "author": "HUMAN" },
+        "action": { "type": "trigger_agent", "agentId": "CLAUDE-DEV", "delayMs": 3000 }
+      },
+      {
+        "id": "rule-2",
+        "enabled": true,
+        "label": "HUMAN → CODEX-DEV",
+        "trigger": { "type": "entry_from", "author": "HUMAN" },
+        "action": { "type": "trigger_agent", "agentId": "CODEX-DEV", "delayMs": 6000 }
+      },
+      {
+        "id": "rule-3",
+        "enabled": true,
+        "label": "Every 5 entries → SYNTH",
+        "trigger": { "type": "every_5_entries" },
+        "action": { "type": "trigger_agent", "agentId": "SYNTH", "delayMs": 2000 }
+      }
+    ]
+  },
+  "sessionTemplate": {
+    "namePrefix": "Code Review",
+    "initialEntry": {
+      "author": "HUMAN",
+      "body": "## Session started\n\nPaste your code, spec, or question below to begin the review."
+    }
+  }
+}

@@ -631,3 +631,69 @@ textarea { resize: vertical; }
   color: var(--text-muted);
   line-height: 1.4;
 }
+
+/* ---------------------------------------------------------------------------
+   Load Bundle button (ghost / outlined style)
+   ------------------------------------------------------------------------- */
+.btn-ghost {
+  background: transparent;
+  color: var(--accent);
+  border: 1.5px solid var(--accent);
+  font-weight: 600;
+}
+.btn-ghost:hover {
+  background: color-mix(in srgb, var(--accent) 10%, transparent);
+}
+.btn-ghost:active { opacity: 0.8; }
+
+/* ---------------------------------------------------------------------------
+   Drag-drop overlay (full-screen, semi-transparent)
+   ------------------------------------------------------------------------- */
+#bundle-drop-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(37, 99, 235, 0.18);
+  border: 3px dashed var(--accent);
+  z-index: 1500;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  pointer-events: none;
+}
+
+#bundle-drop-message {
+  background: var(--bg-card);
+  color: var(--accent);
+  font-size: 22px;
+  font-weight: 700;
+  padding: 28px 48px;
+  border-radius: 16px;
+  border: 2px solid var(--accent);
+  box-shadow: 0 8px 32px rgba(0,0,0,0.18);
+  letter-spacing: -0.2px;
+}
+
+/* ---------------------------------------------------------------------------
+   Success toast (bottom-right, slides in, auto-dismisses)
+   ------------------------------------------------------------------------- */
+#success-toast {
+  position: fixed;
+  bottom: 24px;
+  right: 24px;
+  background: #16a34a;
+  color: #fff;
+  font-size: 13px;
+  font-weight: 600;
+  padding: 10px 20px;
+  border-radius: 999px;
+  z-index: 2000;
+  box-shadow: 0 3px 12px rgba(0,0,0,.25);
+  max-width: 90vw;
+  text-align: center;
+  animation: toast-slide-in 0.25s ease;
+}
+
+@keyframes toast-slide-in {
+  from { transform: translateY(24px); opacity: 0; }
+  to   { transform: translateY(0);    opacity: 1; }
+}

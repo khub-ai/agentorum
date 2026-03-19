@@ -27,6 +27,7 @@ const hasFlag = (name) => args.includes(`--${name}`);
 const CLI_PORT      = parseInt(getArg('port', '3737'), 10);
 const CLI_CHATLOG   = getArg('chatlog', null);
 const CLI_WORKSPACE = getArg('workspace', null);
+const CLI_BUNDLE    = getArg('bundle', null);
 const AUTO_OPEN     = hasFlag('open');
 
 // Determine mode: single-session (--config) vs workspace
@@ -549,6 +550,85 @@ async function handleRequest(req, res) {
         return jsonResp(res, { error: err.message }, 500);
       }
     }
+
+    // POST /api/bundles/load
+    if (pathname === '/api/bundles/load' && method === 'POST') {
+      try {
+        const bundle = JSON.parse(await readBody(req));
+        const result = await workspaceManager.loadBundleFromObject(bundle);
+        const { projectId, sessionId, configPath } = result;
+
+        // Activate the newly created session
+        stopAllAgents();
+        activeConfigPath = configPath;
+        await loadConfig(configPath);
+        startChatlogWatcher();
+        broadcast({ type: 'config_updated', config });
+        await workspaceManager.updateSessionLastActive(projectId, sessionId);
+
+        return jsonResp(res, { ok: true, projectId, sessionId, redirectTo: '/session' });
+      } catch (err) {
+        return jsonResp(res, { error: err.message }, 400);
+      }
+    }
+
+    // GET /api/bundles/schema
+    if (pathname === '/api/bundles/schema' && method === 'GET') {
+      const schema = {
+        bundleVersion: 1,
+        id: 'your-bundle-id',
+        name: 'Human-readable bundle name',
+        description: 'What this bundle sets up',
+        icon: '🔧',
+        prerequisites: [
+          'Node.js 18+',
+          'Claude Code CLI (claude --version)'
+        ],
+        project: {
+          name: 'Project name shown in the workspace',
+          description: 'Optional project description'
+        },
+        scenario: {
+          id: 'your-scenario-id',
+          name: 'Scenario name',
+          participants: [
+            {
+              id: 'HUMAN',
+              label: 'Human label',
+              color: '#555555',
+              agent: 'human',
+              stance: 'neutral'
+            },
+            {
+              id: 'AGENT-1',
+              label: 'Agent label',
+              color: '#2563eb',
+              agent: 'claude',
+              stance: 'neutral',
+              respondTo: ['HUMAN'],
+              systemPrompt: 'System prompt for this agent.'
+            }
+          ],
+          automationRules: [
+            {
+              id: 'rule-1',
+              enabled: true,
+              label: 'Rule label',
+              trigger: { type: 'entry_from', author: 'HUMAN' },
+              action: { type: 'trigger_agent', agentId: 'AGENT-1', delayMs: 3000 }
+            }
+          ]
+        },
+        sessionTemplate: {
+          namePrefix: 'Session',
+          initialEntry: {
+            author: 'HUMAN',
+            body: 'Opening message text shown in the chatlog when the session starts.'
+          }
+        }
+      };
+      return jsonResp(res, schema);
+    }
   }
 
   // -------------------------------------------------------------------------
@@ -650,6 +730,20 @@ async function main() {
 
     await workspaceManager.init();
     console.log(`[agentorum] workspace : ${workspaceManager.workspaceDir}`);
+
+    // --bundle: load bundle file and activate the resulting session
+    if (CLI_BUNDLE) {
+      const bundlePath = path.resolve(CLI_BUNDLE);
+      const result     = await workspaceManager.loadBundle(bundlePath);
+      const { projectId, sessionId, configPath, sessionName } = result;
+
+      activeConfigPath = configPath;
+      await loadConfig(configPath);
+
+      console.log(`[agentorum] Bundle loaded: created project "${projectId}", session "${sessionId}"`);
+
+      // After the HTTP server starts it will serve /session directly
+    }
   } else {
     // Single-session mode — load config from file
     await loadConfig(CONFIG_PATH);
@@ -694,17 +788,23 @@ async function main() {
     if (HAS_CONFIG) {
       console.log(`[agentorum] chatlog : ${config.chatlog}`);
       console.log(`[agentorum] config  : ${activeConfigPath}`);
+    } else if (CLI_BUNDLE) {
+      console.log(`[agentorum] mode    : bundle`);
+      console.log(`[agentorum] chatlog : ${config.chatlog}`);
+      console.log(`[agentorum] config  : ${activeConfigPath}`);
     } else {
       console.log(`[agentorum] mode    : workspace`);
     }
     if (AUTO_OPEN) {
+      // When a bundle was loaded, open /session directly
+      const openPath = CLI_BUNDLE ? '/session' : '/';
       const opener = process.platform === 'win32' ? 'start' : process.platform === 'darwin' ? 'open' : 'xdg-open';
-      spawn(opener, [`http://127.0.0.1:${PORT}`], { shell: true, detached: true, stdio: 'ignore' }).unref();
+      spawn(opener, [`http://127.0.0.1:${PORT}${openPath}`], { shell: true, detached: true, stdio: 'ignore' }).unref();
     }
   });
 
-  // Start chatlog watcher only in single-session mode
-  if (HAS_CONFIG) {
+  // Start chatlog watcher in single-session mode or when a bundle was loaded
+  if (HAS_CONFIG || CLI_BUNDLE) {
     startChatlogWatcher();
   }
 }

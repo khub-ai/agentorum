@@ -345,6 +345,92 @@ export class WorkspaceManager {
   }
 
   // -------------------------------------------------------------------------
+  // Bundle loading
+  // -------------------------------------------------------------------------
+
+  /**
+   * Load a bundle from a file path.
+   * Reads and parses the JSON, then delegates to loadBundleFromObject.
+   */
+  async loadBundle(bundlePath) {
+    const raw    = await fs.readFile(bundlePath, 'utf8');
+    const bundle = JSON.parse(raw);
+    return this.loadBundleFromObject(bundle);
+  }
+
+  /**
+   * Load a bundle from an already-parsed object.
+   * Validates the bundle, registers the scenario, creates a project and session,
+   * and appends the initialEntry to the chatlog.
+   * Returns { projectId, sessionId, configPath, chatlogPath, sessionName }.
+   */
+  async loadBundleFromObject(bundle) {
+    // Validate
+    if (!bundle || typeof bundle !== 'object') {
+      throw new Error('Invalid bundle: expected a JSON object');
+    }
+    if (bundle.bundleVersion === undefined || bundle.bundleVersion === null) {
+      throw new Error('Invalid bundle format: missing bundleVersion field');
+    }
+    if (bundle.bundleVersion !== 1) {
+      throw new Error(`Unsupported bundleVersion: ${bundle.bundleVersion} (expected 1)`);
+    }
+    if (!bundle.id) {
+      throw new Error('Invalid bundle format: missing id field');
+    }
+    if (!bundle.scenario || typeof bundle.scenario !== 'object') {
+      throw new Error('Invalid bundle format: missing scenario field');
+    }
+    if (!bundle.project || typeof bundle.project !== 'object') {
+      throw new Error('Invalid bundle format: missing project field');
+    }
+
+    // Register the scenario into ~/.agentorum/scenarios/<id>.scenario.json
+    const scenarioFileName = `${bundle.id}.scenario.json`;
+    const scenarioFilePath = path.join(this.scenariosDir, scenarioFileName);
+    await writeJson(scenarioFilePath, bundle.scenario);
+
+    // Create the project
+    const projectName        = (bundle.project.name || bundle.name || bundle.id).trim();
+    const projectDescription = (bundle.project.description || bundle.description || '').trim();
+    const project = await this.createProject({
+      name:            projectName,
+      description:     projectDescription,
+      defaultScenario: bundle.scenario.id
+    });
+
+    // Derive session name: namePrefix + today's date
+    const today       = new Date().toISOString().slice(0, 10); // YYYY-MM-DD
+    const namePrefix  = (bundle.sessionTemplate && bundle.sessionTemplate.namePrefix)
+      ? bundle.sessionTemplate.namePrefix
+      : 'Session';
+    const sessionName = `${namePrefix} ${today}`;
+
+    // Create the session
+    const { sessionId, configPath, chatlogPath } = await this.createSession(project.id, {
+      name:      sessionName,
+      scenario:  bundle.scenario.id,
+      overrides: {}
+    });
+
+    // Append the initialEntry if defined
+    if (
+      bundle.sessionTemplate &&
+      bundle.sessionTemplate.initialEntry &&
+      typeof bundle.sessionTemplate.initialEntry.body === 'string'
+    ) {
+      const entry   = bundle.sessionTemplate.initialEntry;
+      const author  = entry.author || 'HUMAN';
+      const body    = entry.body;
+      const ts      = new Date().toISOString().replace('T', ' ').slice(0, 19);
+      const entryText = `### ${ts} - ${author}\n\n${body}\n\n`;
+      await fs.appendFile(chatlogPath, entryText, 'utf8');
+    }
+
+    return { projectId: project.id, sessionId, configPath, chatlogPath, sessionName };
+  }
+
+  // -------------------------------------------------------------------------
   // Workspace info
   // -------------------------------------------------------------------------
   async getWorkspaceInfo() {
