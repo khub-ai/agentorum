@@ -12,11 +12,12 @@ Every other multi-agent tool routes tasks through a pipeline. Agentorum runs a *
 |---|---|---|
 | Multi-agent deliberation | **Yes — core purpose** | No — task handoff only |
 | Purpose-built debate GUI | **Yes** | No |
-| Thread tree + stance arc + position map | **Yes** | No |
 | Live data tables and charts | **Yes** | No |
 | Human steers debate in real time | **Yes — first class** | Limited |
 | Full auditable transcript | **Yes** | Session logs only |
 | Runs out of the box, no coding required | **Yes** | No |
+| LLM-agnostic (Claude, GPT, Gemini, local) | **Yes** | Vendor-locked |
+| Local data — you own everything generated | **Yes** | Cloud-stored |
 | Domain-agnostic | **Yes** | Product- or CRM-specific |
 | Open-source and free | **Yes** | No |
 
