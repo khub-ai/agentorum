@@ -969,3 +969,90 @@ One click on "Start" resolves the config, writes the session folder, and opens t
 **Data entry versioning:** If `DUE-DIL` posts an updated revenue projection, does it replace the prior data entry in the Spreadsheet view, or appear as a separate entry? Current answer: separate entry (append-only), displayed in order. "Latest version" tracking is v2.
 
 **SYNTH trigger strategy:** Auto-trigger every N entries works but may be wasteful. Smarter trigger (e.g., when stance imbalance exceeds a threshold, or when no rebuttal appears within K turns) is v2. v1 uses every_n_entries with configurable N.
+
+---
+
+## 16. Hosted Service Architecture (future)
+
+A turn-key hosted service ("Agentorum Cloud") is a plausible v2+ direction for users who prefer convenience over control. This section records the forward-compatibility analysis and key architectural decisions.
+
+### Forward-compatibility assessment
+
+The current design is largely forward-compatible at the API and data model levels. The following do **not** need to change:
+
+- REST API routes — add auth middleware, nothing else
+- WebSocket event types (`init`, `entries_added`, `agent_status`, etc.)
+- Entry format and chatlog parsing
+- Participant / scenario / bundle model
+- The UI (add login screen; core debate view unchanged)
+- The workspace/project/session hierarchy — maps directly to a database schema
+
+### Three areas requiring re-architecture
+
+**1. File system → database**
+
+`WorkspaceManager` is the correct abstraction point. Migration path: define a `WorkspaceBackend` interface with two implementations — `FileSystemBackend` (local/self-hosted) and `CloudBackend` (hosted service, backed by PostgreSQL + object storage). All server and UI code already goes through `WorkspaceManager`; no routes need changes.
+
+| Local | Cloud equivalent |
+|---|---|
+| `chatlog.md` | Append-only rows in PostgreSQL |
+| `session.json`, `project.json` | Database records |
+| `rules-PARTICIPANT.txt` | Object storage (S3/R2) |
+| `~/.agentorum/` workspace | Per-user namespace in multi-tenant DB |
+
+**Recommended action now:** define a `WorkspaceBackend` interface before the file-based implementation grows more complex. This is the single highest-value forward-compat investment.
+
+**2. Local CLI agents → direct LLM API calls**
+
+`invokeAgent()` and `triggerAgent()` currently spawn `claude --print` / `codex --full-auto` as child processes. A hosted service must call the Anthropic and OpenAI APIs directly over HTTP. Define an `AgentBackend` interface with `CLIBackend` and `APIBackend` implementations. The change is fully contained in those two functions.
+
+The **interactive agent mode** (user runs CLI locally, pastes init command) is a local-only feature — it does not apply in the hosted service. All hosted agents are automated API calls, which simplifies the architecture.
+
+**Bring Your Own Key (BYOK)** is the correct model for v1 hosted: users provide their own Anthropic/OpenAI API keys, stored encrypted server-side (AWS Secrets Manager or equivalent). The service has zero LLM cost exposure.
+
+**3. Multi-tenancy and authentication**
+
+Currently assumes a single trusted local user. Hosted service requires:
+- User accounts: signup, login, password reset, OAuth (Google/GitHub via Auth.js or Clerk)
+- JWT or signed session cookies on every API request
+- Namespace isolation: users cannot access each other's sessions
+- Rate limiting per user
+- The current per-session token is adequate locally; replace with standard JWT in cloud
+
+This is the most pervasive change — touches every API route — but is entirely additive.
+
+### Additional infrastructure concerns
+
+**WebSocket scaling:** one process currently serves one workspace. Multi-user hosted deployment needs sticky routing (NGINX upstream hash) or a pub/sub layer (Redis Pub/Sub) so horizontal server scaling works without dropping WebSocket connections. Event contracts unchanged.
+
+**Data privacy and compliance:** chatlogs will contain sensitive material (investment deliberations, medical discussions, legal matters). Design requirements before launch: encryption at rest and in transit, data residency options (EU hosting for GDPR), right-to-deletion, audit log of data access. The local-first model sidesteps all of this by default — users own their own data entirely.
+
+### Billing and payments
+
+**Use a Merchant of Record (MoR) platform, not a raw payment processor.**
+
+The MoR (LemonSqueezy for early stage; Paddle once B2B volume grows) acts as the legal seller. It handles global VAT/GST/sales tax collection and remittance, EU consumer refund law compliance, and PCI DSS. You receive net revenue. The ~2% premium over direct Stripe is far cheaper than accountants and tax registrations across 50+ jurisdictions.
+
+**Avoid:** absorbing LLM costs (cost spike exposure until usage is predictable), crypto payments (regulatory uncertainty, complex accounting), custom subscription infrastructure (use the MoR's built-in dunning, proration, and invoicing).
+
+**Recommended pricing model (BYOK):**
+
+| Tier | Price | Limits |
+|---|---|---|
+| Free | $0 | 3 sessions/month, 5 participants max |
+| Pro | $19/month (or $15/month annual) | Unlimited sessions, all scenarios |
+| Team | $49/month | Pro + shared workspace, up to 5 users |
+
+Usage-based billing (per token, per session) adds metering complexity; defer until stable volume data exists.
+
+**Payment method coverage via LemonSqueezy/Paddle:** Visa/MC/Amex globally, Apple Pay, Google Pay, PayPal, SEPA (EU), ACH (US). Covers the overwhelming majority of customers.
+
+### Recommended sequence
+
+1. Extract `WorkspaceBackend` interface from `WorkspaceManager` — do this before v2 work begins.
+2. Extract `AgentBackend` interface from `invokeAgent()` / `triggerAgent()`.
+3. Add auth middleware layer (additive, no route changes).
+4. Add database backend implementation.
+5. Add LLM API backend implementation.
+6. Wire up LemonSqueezy billing and API key storage.
+7. WebSocket scaling (only needed when concurrent user count justifies it).
