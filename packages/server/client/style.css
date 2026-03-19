@@ -464,7 +464,155 @@ label { display: flex; align-items: center; gap: 6px; cursor: pointer; }
 #config-actions { display: flex; gap: 8px; justify-content: flex-end; }
 
 /* ---------------------------------------------------------------------------
-   Initialize Agents panel
+   Primary button
+   ------------------------------------------------------------------------- */
+.btn-primary {
+  background: var(--accent);
+  color: #fff;
+  border-color: var(--accent);
+  font-weight: 600;
+  padding: 6px 16px;
+}
+.btn-primary:hover { background: color-mix(in srgb, var(--accent) 85%, #000); }
+
+/* ---------------------------------------------------------------------------
+   Initialize Agents modal
+   ------------------------------------------------------------------------- */
+#init-modal {
+  position: fixed; inset: 0;
+  background: rgba(0,0,0,.65);
+  z-index: 500;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+}
+
+#init-modal-inner {
+  background: var(--bg-card);
+  border: 2px solid var(--accent);
+  border-radius: 10px;
+  padding: 28px 28px 22px;
+  width: 100%;
+  max-width: 580px;
+  max-height: 90vh;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  box-shadow: 0 8px 40px rgba(0,0,0,.45);
+}
+
+#init-modal-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+#init-modal-icon { font-size: 22px; flex-shrink: 0; }
+#init-modal-header h2 { font-size: 16px; font-weight: 700; }
+
+#init-modal-desc {
+  font-size: 13px;
+  line-height: 1.55;
+  color: var(--text-muted);
+}
+#init-modal-desc strong { color: var(--text); }
+
+#init-modal-cards { display: flex; flex-direction: column; gap: 10px; }
+
+.init-modal-card {
+  background: var(--bg-sidebar);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 12px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.init-modal-card-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.init-modal-agent-id    { font-weight: 700; font-size: 14px; }
+.init-modal-agent-label { font-size: 12px; color: var(--text-muted); }
+
+.init-modal-step {
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: .05em;
+  color: var(--text-muted);
+}
+
+.init-modal-command-row {
+  display: flex;
+  align-items: stretch;
+  gap: 8px;
+}
+
+.init-modal-command {
+  flex: 1;
+  font-family: 'Cascadia Code','Fira Mono',monospace;
+  font-size: 11px;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 6px 8px;
+  word-break: break-all;
+  line-height: 1.5;
+  color: var(--text);
+  user-select: all;
+}
+
+.btn-copy-modal {
+  font-size: 12px;
+  padding: 4px 12px;
+  white-space: nowrap;
+  flex-shrink: 0;
+  font-weight: 600;
+}
+.btn-copy-modal.copied {
+  background: #16a34a22;
+  color: #16a34a;
+  border-color: #16a34a;
+}
+
+#init-modal-footer {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  border-top: 1px solid var(--border);
+  padding-top: 14px;
+}
+
+#init-modal-skip-hint {
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+#init-modal-actions {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+}
+
+/* Reinit button in sidebar section header */
+#init-agents-section h3 { display: flex; align-items: center; justify-content: space-between; }
+#btn-reinit {
+  font-size: 10px;
+  padding: 1px 6px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--bg-card);
+  color: var(--text-muted);
+  cursor: pointer;
+}
+#btn-reinit:hover { color: var(--accent); border-color: var(--accent); }
+
+/* ---------------------------------------------------------------------------
+   Initialize Agents panel (sidebar)
    ------------------------------------------------------------------------- */
 #init-agents-section { margin-top: 4px; }
 

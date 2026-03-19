@@ -39,7 +39,7 @@ function connect() {
         renderAll();
         renderParticipantPills();
         renderAgentCards();
-        renderInitAgentsPanel();
+        renderInitAgentsPanel(true);   // autoShow=true — modal fires on session load
         renderComposeAuthorOptions();
         renderRules();
         updateLoadOlderBtn();
@@ -425,23 +425,87 @@ document.getElementById('agent-cards').addEventListener('click', async e => {
 });
 
 // ---------------------------------------------------------------------------
-// Initialize Agents panel
+// Initialize Agents — modal + sidebar panel
 // ---------------------------------------------------------------------------
-async function renderInitAgentsPanel() {
+let _initAgentsData = null;  // cached from /api/session
+
+function makeCopyBtn(cmd, cls) {
+  const btn = document.createElement('button');
+  btn.className = cls;
+  btn.textContent = 'Copy';
+  btn.addEventListener('click', () => {
+    navigator.clipboard.writeText(cmd).then(() => {
+      btn.textContent = '✓ Copied';
+      btn.classList.add('copied');
+      setTimeout(() => { btn.textContent = 'Copy'; btn.classList.remove('copied'); }, 2000);
+    });
+  });
+  return btn;
+}
+
+function buildModalCard(p) {
+  const color = participantColor(p.id);
+  const card  = document.createElement('div');
+  card.className = 'init-modal-card';
+  card.innerHTML = `
+    <div class="init-modal-card-header">
+      <span class="init-modal-agent-id" style="color:${color}">${p.id}</span>
+      <span class="init-modal-agent-label">${p.label}</span>
+    </div>
+    <div class="init-modal-step">Paste into ${p.label}'s session window:</div>
+    <div class="init-modal-command-row">
+      <code class="init-modal-command">${p.initCommand}</code>
+    </div>
+  `;
+  const row = card.querySelector('.init-modal-command-row');
+  row.appendChild(makeCopyBtn(p.initCommand, 'btn-copy-modal'));
+  return card;
+}
+
+function openInitModal(participants) {
+  const container = document.getElementById('init-modal-cards');
+  container.innerHTML = '';
+  participants.forEach(p => container.appendChild(buildModalCard(p)));
+  document.getElementById('init-modal').style.display = 'flex';
+}
+
+function closeInitModal() {
+  document.getElementById('init-modal').style.display = 'none';
+}
+
+document.getElementById('btn-init-done').addEventListener('click', closeInitModal);
+document.getElementById('btn-init-show-again').addEventListener('click', closeInitModal);
+
+// Clicking the backdrop also closes
+document.getElementById('init-modal').addEventListener('click', e => {
+  if (e.target === document.getElementById('init-modal')) closeInitModal();
+});
+
+// Re-open button in sidebar
+document.getElementById('btn-reinit').addEventListener('click', () => {
+  if (_initAgentsData?.length) openInitModal(_initAgentsData);
+});
+
+async function renderInitAgentsPanel(autoShow = false) {
   const section = document.getElementById('init-agents-section');
   if (!section) return;
+
   const data = await api('/api/session');
   if (!data || !data.active || !data.interactiveParticipants?.length) {
     section.style.display = 'none';
     return;
   }
+
+  _initAgentsData = data.interactiveParticipants;
+
+  // Sidebar compact cards (copy buttons only, no modal chrome)
   section.style.display = 'block';
   const container = document.getElementById('init-agent-cards');
   container.innerHTML = '';
   data.interactiveParticipants.forEach(p => {
-    const card = document.createElement('div');
-    card.className = 'init-agent-card';
     const color = participantColor(p.id);
+    const card  = document.createElement('div');
+    card.className = 'init-agent-card';
     card.innerHTML = `
       <div class="init-agent-header">
         <span class="init-agent-id" style="color:${color}">${p.id}</span>
@@ -449,20 +513,20 @@ async function renderInitAgentsPanel() {
       </div>
       <div class="init-command-row">
         <code class="init-command">${p.initCommand}</code>
-        <button class="btn-copy" data-cmd="${p.initCommand.replace(/"/g, '&quot;')}">Copy</button>
       </div>
     `;
+    const row = card.querySelector('.init-command-row');
+    row.appendChild(makeCopyBtn(p.initCommand, 'btn-copy'));
     container.appendChild(card);
   });
+
+  // Auto-show modal on first load so it cannot be missed
+  if (autoShow) openInitModal(data.interactiveParticipants);
 }
 
+// Sidebar copy buttons (delegated, catches any remaining plain .btn-copy clicks)
 document.getElementById('init-agent-cards').addEventListener('click', e => {
-  const btn = e.target.closest('.btn-copy');
-  if (!btn) return;
-  navigator.clipboard.writeText(btn.dataset.cmd).then(() => {
-    btn.textContent = 'Copied!';
-    setTimeout(() => { btn.textContent = 'Copy'; }, 2000);
-  });
+  // Individual copy buttons are attached directly — this is a safety fallback
 });
 
 // ---------------------------------------------------------------------------

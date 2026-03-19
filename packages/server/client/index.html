@@ -72,8 +72,7 @@
     <div id="agent-cards"></div>
 
     <section id="init-agents-section" style="display:none">
-      <h3>Initialize Agents</h3>
-      <p class="init-hint">Paste the command below into each agent's session window to connect it to this debate.</p>
+      <h3>Initialize Agents <button id="btn-reinit" title="Re-open the initialization dialog">↗</button></h3>
       <div id="init-agent-cards"></div>
     </section>
 
@@ -91,6 +90,29 @@
     <button id="btn-close-log">✕</button>
   </div>
   <pre id="log-content"></pre>
+</div>
+
+<!-- ── Initialize Agents modal ──────────────────────────────────────────── -->
+<div id="init-modal" style="display:none">
+  <div id="init-modal-inner">
+    <div id="init-modal-header">
+      <span id="init-modal-icon">⚠️</span>
+      <h2>Action required: initialize your agents</h2>
+    </div>
+    <p id="init-modal-desc">
+      This session has <strong>interactive agents</strong> that must be connected before they can participate.
+      Paste the command below into each agent's session window now.
+      The agent will read its rules file and confirm its role.
+    </p>
+    <div id="init-modal-cards"></div>
+    <div id="init-modal-footer">
+      <span id="init-modal-skip-hint">Already done, or running without these agents?</span>
+      <div id="init-modal-actions">
+        <button id="btn-init-show-again" title="Re-open this dialog from the Agents panel">Show again later</button>
+        <button id="btn-init-done" class="btn-primary">✓ Done — start the session</button>
+      </div>
+    </div>
+  </div>
 </div>
 
 <!-- ── Config modal ─────────────────────────────────────────────────────── -->
