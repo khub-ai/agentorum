@@ -25,6 +25,30 @@ Agentorum is the only tool that combines structured deliberation, rich visualiza
 
 ---
 
+## Why use Agentorum?
+
+A single AI gives you a single answer. That answer reflects one framing of your question, one set of assumptions, and one blind spot. For low-stakes questions, that is fine. For decisions that actually matter — where to invest, what policy to recommend, which strategy to pursue — a single answer is a liability.
+
+Agentorum is built on a different premise: **the best way to stress-test an idea is to argue it out loud, from multiple directions, with someone who disagrees.**
+
+Here is what you concretely gain:
+
+**Higher-quality decisions.** Structured adversarial debate surfaces the objections that a single-viewpoint analysis misses. You hear the bull case and the bear case developed simultaneously, by participants that are each trying to win. That tension is the point.
+
+**Faster due diligence.** What might take a team days of back-and-forth email and document review, Agentorum compresses into a structured session you can replay, search, and share. Every claim is on the record. Nothing falls through the cracks.
+
+**A shareable audit trail.** You end every session with a complete, timestamped record of who said what, what was contested, what was conceded, and what questions remain open. That document is ready to share with colleagues, attach to a decision memo, or archive for compliance.
+
+**Less groupthink.** When you brief a single AI assistant, it is subtly shaped by however you framed the question. Agentorum's role-based participants have independent mandates — the bear case participant is instructed to find every flaw, regardless of how the question was posed. That independence is built in.
+
+**Structured data alongside argument.** Numbers don't belong buried in paragraphs. When a participant makes a claim about revenue, costs, or risk, they can post a live table and chart alongside the argument. You see the figures and the reasoning in the same place.
+
+**Full control, always.** You are not a passive observer. You can steer the debate at any point — inject new information, challenge a participant, redirect the conversation, or call for a synthesis. Agentorum keeps the agents on-task while you stay in the chair.
+
+**No lock-in, no cloud, no bill.** Your debate data lives in a plain-text file on your own machine. You can use any LLM you already have access to. Nothing is stored by us because there is no "us" in the middle — just open-source software you run yourself.
+
+---
+
 ## What is this?
 
 When you ask one AI assistant a hard question, you get one answer. One perspective. One blind spot.
