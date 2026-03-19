@@ -14,7 +14,7 @@ Every other multi-agent tool routes tasks through a pipeline. Agentorum runs a *
 | Purpose-built debate GUI | **Yes** | No |
 | Live data tables and charts | **Yes** | No |
 | Human steers debate in real time | **Yes — first class** | Limited |
-| Full auditable transcript | **Yes** | Session logs only |
+| Complete transcript with configurable analysis — know exactly how every conclusion was reached | **Yes** | Session logs only |
 | Runs out of the box, no coding required | **Yes** | No |
 | LLM-agnostic (Claude, GPT, Gemini, local) | **Yes** | Vendor-locked |
 | Local data — you own everything generated | **Yes** | Cloud-stored |
