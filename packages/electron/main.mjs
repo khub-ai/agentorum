@@ -6,6 +6,7 @@ import { app, BrowserWindow, Menu, dialog, shell, ipcMain } from 'electron';
 import { fileURLToPath }                                      from 'node:url';
 import http                                                   from 'node:http';
 import path                                                   from 'node:path';
+import os                                                     from 'node:os';
 
 const __dirname     = path.dirname(fileURLToPath(import.meta.url));
 const SERVER_MODULE = path.resolve(__dirname, '../server/server.mjs');
@@ -39,7 +40,7 @@ function waitForServer(port, maxWaitMs = 20_000) {
 // ---------------------------------------------------------------------------
 // BrowserWindow
 // ---------------------------------------------------------------------------
-function createWindow(port) {
+function createWindow(port, initialPath = '/') {
   mainWindow = new BrowserWindow({
     width:  1440,
     height: 900,
@@ -54,7 +55,7 @@ function createWindow(port) {
     },
   });
 
-  mainWindow.loadURL(`http://127.0.0.1:${port}`);
+  mainWindow.loadURL(`http://127.0.0.1:${port}${initialPath}`);
 
   // Open all target="_blank" links in the system browser, not a new Electron window
   mainWindow.webContents.setWindowOpenHandler(({ url }) => {
@@ -68,7 +69,7 @@ function createWindow(port) {
 // ---------------------------------------------------------------------------
 // Application menu
 // ---------------------------------------------------------------------------
-function buildMenu(port) {
+function buildMenu(port, workspaceMode) {
   const isMac = process.platform === 'darwin';
 
   const template = [
@@ -78,34 +79,48 @@ function buildMenu(port) {
     {
       label: 'File',
       submenu: [
-        {
-          label:       'Open Debate Config…',
-          accelerator: 'CmdOrCtrl+O',
-          async click() {
-            const result = await dialog.showOpenDialog(mainWindow, {
-              title:      'Open Agentorum Config File',
-              buttonLabel:'Open',
-              filters: [{ name: 'Agentorum Config', extensions: ['json'] }],
-              properties: ['openFile'],
-            });
-            if (!result.canceled && result.filePaths[0]) {
-              const configPath = result.filePaths[0];
-              // POST the new config path to the server; server reloads & broadcasts
-              const body = JSON.stringify({ configPath });
-              const req  = http.request(
-                { hostname: '127.0.0.1', port, path: '/api/reload', method: 'POST',
-                  headers: { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(body) } },
-                (res) => { res.resume(); mainWindow?.reload(); }
-              );
-              req.on('error', () => {
-                dialog.showErrorBox('Could not switch config',
-                  'The server did not accept the new config path. Please restart Agentorum.');
-              });
-              req.write(body);
-              req.end();
+        workspaceMode
+          ? {
+              label:       'Open Project Folder',
+              accelerator: 'CmdOrCtrl+O',
+              async click() {
+                // Open the workspace projects directory in the file explorer
+                const workspaceProjectsDir = path.join(os.homedir(), '.agentorum', 'projects');
+                try {
+                  await shell.openPath(workspaceProjectsDir);
+                } catch {
+                  dialog.showErrorBox('Could not open folder', `Unable to open: ${workspaceProjectsDir}`);
+                }
+              },
             }
-          },
-        },
+          : {
+              label:       'Open Debate Config…',
+              accelerator: 'CmdOrCtrl+O',
+              async click() {
+                const result = await dialog.showOpenDialog(mainWindow, {
+                  title:      'Open Agentorum Config File',
+                  buttonLabel:'Open',
+                  filters: [{ name: 'Agentorum Config', extensions: ['json'] }],
+                  properties: ['openFile'],
+                });
+                if (!result.canceled && result.filePaths[0]) {
+                  const configPath = result.filePaths[0];
+                  // POST the new config path to the server; server reloads & broadcasts
+                  const body = JSON.stringify({ configPath });
+                  const req  = http.request(
+                    { hostname: '127.0.0.1', port, path: '/api/reload', method: 'POST',
+                      headers: { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(body) } },
+                    (res) => { res.resume(); mainWindow?.reload(); }
+                  );
+                  req.on('error', () => {
+                    dialog.showErrorBox('Could not switch config',
+                      'The server did not accept the new config path. Please restart Agentorum.');
+                  });
+                  req.write(body);
+                  req.end();
+                }
+              },
+            },
         { type: 'separator' },
         {
           label: 'Open Chatlog in Editor',
@@ -179,6 +194,9 @@ app.whenReady().then(async () => {
   const cfgIdx     = argv.indexOf('--config');
   const configPath = cfgIdx !== -1 && argv[cfgIdx + 1] ? argv[cfgIdx + 1] : null;
 
+  // Workspace mode = no --config argument
+  const workspaceMode = !configPath;
+
   // Dynamically import the server module and call its exported startServer()
   // The server runs inside this same Node.js process — no child process needed.
   let startServer;
@@ -207,11 +225,15 @@ app.whenReady().then(async () => {
     return;
   }
 
-  buildMenu(DEFAULT_PORT);
-  createWindow(DEFAULT_PORT);
+  buildMenu(DEFAULT_PORT, workspaceMode);
+
+  // In workspace mode: open home screen (/).
+  // In single-session mode: open session view directly.
+  const initialPath = workspaceMode ? '/' : '/';
+  createWindow(DEFAULT_PORT, initialPath);
 
   app.on('activate', () => {
-    if (BrowserWindow.getAllWindows().length === 0) createWindow(DEFAULT_PORT);
+    if (BrowserWindow.getAllWindows().length === 0) createWindow(DEFAULT_PORT, initialPath);
   });
 });
 

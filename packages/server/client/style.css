@@ -106,6 +106,22 @@ label { display: flex; align-items: center; gap: 6px; cursor: pointer; }
 #topbar-left  { display: flex; align-items: center; gap: 10px; min-width: 0; overflow: hidden; }
 #topbar-right { display: flex; align-items: center; gap: 8px; flex-shrink: 0; }
 
+#btn-back-home {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-muted);
+  text-decoration: none;
+  padding: 3px 9px;
+  border-radius: var(--radius);
+  border: 1px solid var(--border);
+  background: var(--bg-card);
+  white-space: nowrap;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+#btn-back-home:hover { background: var(--badge-bg); color: var(--text); }
+
 #logo {
   font-weight: 700;
   font-size: 16px;

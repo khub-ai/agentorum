@@ -2,6 +2,7 @@
 // HTTP + WebSocket server: serves the GUI, manages participants, watches the chatlog.
 //
 // Can be run directly:  node server.mjs [--config path] [--port N] [--open]
+//                       node server.mjs [--workspace dir] [--open]
 // Or imported by Electron main.mjs:  import { startServer } from './server.mjs'
 
 import http        from 'node:http';
@@ -12,6 +13,7 @@ import { spawn }   from 'node:child_process';
 import path        from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { WebSocketServer } from 'ws';
+import { WorkspaceManager } from './workspace.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -24,8 +26,19 @@ const hasFlag = (name) => args.includes(`--${name}`);
 
 const CLI_PORT      = parseInt(getArg('port', '3737'), 10);
 const CLI_CHATLOG   = getArg('chatlog', null);
-const CONFIG_PATH   = path.resolve(getArg('config', 'agentorum.config.json'));
+const CLI_WORKSPACE = getArg('workspace', null);
 const AUTO_OPEN     = hasFlag('open');
+
+// Determine mode: single-session (--config) vs workspace
+const HAS_CONFIG    = args.includes('--config');
+const CONFIG_PATH   = HAS_CONFIG
+  ? path.resolve(getArg('config', 'agentorum.config.json'))
+  : null;
+
+// ---------------------------------------------------------------------------
+// Workspace manager (workspace mode only)
+// ---------------------------------------------------------------------------
+let workspaceManager = null;
 
 // ---------------------------------------------------------------------------
 // Config schema & defaults
@@ -67,11 +80,17 @@ const DEFAULT_CONFIG = {
   automationRules: []
 };
 
-let config = { ...DEFAULT_CONFIG };
+let config         = { ...DEFAULT_CONFIG };
+let activeConfigPath = CONFIG_PATH;  // tracks the current config file path (mutable in workspace mode)
 
-async function loadConfig() {
+async function loadConfig(configFilePath) {
+  const target = configFilePath || activeConfigPath;
+  if (!target) {
+    config = { ...DEFAULT_CONFIG };
+    return;
+  }
   try {
-    const raw = await fsp.readFile(CONFIG_PATH, 'utf8');
+    const raw = await fsp.readFile(target, 'utf8');
     config = { ...DEFAULT_CONFIG, ...JSON.parse(raw) };
   } catch {
     config = { ...DEFAULT_CONFIG };
@@ -80,14 +99,17 @@ async function loadConfig() {
   if (hasFlag('port'))    config.port    = CLI_PORT;
   if (CLI_CHATLOG)        config.chatlog = CLI_CHATLOG;
   // Resolve chatlog relative to config file's directory
-  config.chatlog = path.resolve(path.dirname(CONFIG_PATH), config.chatlog);
+  if (target) {
+    config.chatlog = path.resolve(path.dirname(target), config.chatlog);
+  }
 }
 
 async function saveConfig() {
+  if (!activeConfigPath) return;
   // Save chatlog relative to config file directory for portability
-  const relative = path.relative(path.dirname(CONFIG_PATH), config.chatlog);
+  const relative = path.relative(path.dirname(activeConfigPath), config.chatlog);
   const toSave = { ...config, chatlog: relative };
-  await fsp.writeFile(CONFIG_PATH, JSON.stringify(toSave, null, 2), 'utf8');
+  await fsp.writeFile(activeConfigPath, JSON.stringify(toSave, null, 2), 'utf8');
 }
 
 // ---------------------------------------------------------------------------
@@ -157,18 +179,28 @@ function formatEntry(participantId, body, meta = {}) {
 // ---------------------------------------------------------------------------
 let _lastEntries  = [];
 let _debounceTimer = null;
+let _watcherInstance = null;
 const DEBOUNCE_MS  = 600;
 
 function startChatlogWatcher() {
   const chatlogPath = config.chatlog;
+  if (!chatlogPath) return;
+
+  // Stop any existing watcher
+  if (_watcherInstance) {
+    try { _watcherInstance.close(); } catch { /* ignore */ }
+    _watcherInstance = null;
+  }
+
   if (!fs.existsSync(chatlogPath)) {
     fs.mkdirSync(path.dirname(chatlogPath), { recursive: true });
     fs.writeFileSync(chatlogPath, '', 'utf8');
   }
-  fs.watch(chatlogPath, { persistent: true }, () => {
+  _watcherInstance = fs.watch(chatlogPath, { persistent: true }, () => {
     clearTimeout(_debounceTimer);
     _debounceTimer = setTimeout(processChatlogChange, DEBOUNCE_MS);
   });
+  _lastEntries = [];
   processChatlogChange();
 }
 
@@ -210,13 +242,15 @@ function startAgent(participant) {
   // process.execPath is the Electron binary, which can also run Node scripts.
   const nodeExe  = process.versions.electron ? process.execPath : 'node';
 
+  const configArg = activeConfigPath || '';
+
   const proc = spawn(nodeExe, [
     watcherPath,
     '--participant-id', id,
     '--agent',          participant.agent || 'claude',
     '--respond-to',     respondTo,
     '--chatlog',        config.chatlog,
-    '--config',         CONFIG_PATH,
+    '--config',         configArg,
   ], { stdio: ['ignore', 'pipe', 'pipe'] });
 
   const state = { process: proc, status: 'running', pid: proc.pid, logs: [], lastResponseAt: null };
@@ -249,6 +283,13 @@ function startAgent(participant) {
 function stopAgent(id) {
   const a = agentProcs.get(id);
   if (a?.status === 'running') a.process.kill('SIGTERM');
+}
+
+function stopAllAgents() {
+  for (const [id] of agentProcs) {
+    stopAgent(id);
+  }
+  agentProcs.clear();
 }
 
 async function triggerAgent(participant) {
@@ -310,6 +351,16 @@ function evaluateRules(entry) {
         setTimeout(() => triggerAgent(participant), rule.action?.delayMs ?? 0);
       }
     }
+    // every_5_entries rule: check total entry count
+    if (rule.trigger?.type === 'every_5_entries') {
+      const total = _lastEntries.length;
+      if (total > 0 && total % 5 === 0) {
+        const participant = config.participants.find(p => p.id === rule.action?.agentId);
+        if (participant) {
+          setTimeout(() => triggerAgent(participant), rule.action?.delayMs ?? 0);
+        }
+      }
+    }
   }
 }
 
@@ -365,17 +416,148 @@ async function handleRequest(req, res) {
   const { method } = req;
   const pathname   = new URL(req.url, 'http://localhost').pathname;
 
+  // -------------------------------------------------------------------------
+  // Static file routing
+  // -------------------------------------------------------------------------
   if (!pathname.startsWith('/api/')) {
-    // Static files
-    const filePath = pathname === '/'
-      ? path.join(CLIENT_DIR, 'index.html')
-      : path.join(CLIENT_DIR, pathname);
+    if (workspaceManager) {
+      // Workspace mode: home screen at /, session view at /session
+      if (pathname === '/') {
+        return serveFile(res, path.join(CLIENT_DIR, 'home.html'));
+      }
+      if (pathname === '/session') {
+        return serveFile(res, path.join(CLIENT_DIR, 'index.html'));
+      }
+    } else {
+      // Single-session mode: index.html at /
+      if (pathname === '/') {
+        return serveFile(res, path.join(CLIENT_DIR, 'index.html'));
+      }
+    }
+
+    // All other static assets (JS, CSS, etc.)
+    const filePath = path.join(CLIENT_DIR, pathname);
     if (!filePath.startsWith(CLIENT_DIR)) { res.writeHead(403); res.end(); return; }
     return serveFile(res, filePath);
   }
 
+  // -------------------------------------------------------------------------
+  // Workspace-mode API routes
+  // -------------------------------------------------------------------------
+  if (workspaceManager) {
+    // GET /api/workspace
+    if (pathname === '/api/workspace' && method === 'GET') {
+      try {
+        return jsonResp(res, await workspaceManager.getWorkspaceInfo());
+      } catch (err) {
+        return jsonResp(res, { error: err.message }, 500);
+      }
+    }
+
+    // GET /api/scenarios
+    if (pathname === '/api/scenarios' && method === 'GET') {
+      try {
+        return jsonResp(res, await workspaceManager.listScenarios());
+      } catch (err) {
+        return jsonResp(res, { error: err.message }, 500);
+      }
+    }
+
+    // GET /api/projects
+    if (pathname === '/api/projects' && method === 'GET') {
+      try {
+        return jsonResp(res, await workspaceManager.listProjects());
+      } catch (err) {
+        return jsonResp(res, { error: err.message }, 500);
+      }
+    }
+
+    // POST /api/projects
+    if (pathname === '/api/projects' && method === 'POST') {
+      try {
+        const body = JSON.parse(await readBody(req));
+        const project = await workspaceManager.createProject(body);
+        return jsonResp(res, project, 201);
+      } catch (err) {
+        return jsonResp(res, { error: err.message }, 400);
+      }
+    }
+
+    // GET /api/projects/:projectId
+    const projectMatch = pathname.match(/^\/api\/projects\/([^/]+)$/);
+    if (projectMatch && method === 'GET') {
+      const [, projectId] = projectMatch;
+      try {
+        return jsonResp(res, await workspaceManager.getProject(projectId));
+      } catch (err) {
+        return jsonResp(res, { error: err.message }, 404);
+      }
+    }
+
+    // GET /api/projects/:projectId/sessions
+    const sessionsListMatch = pathname.match(/^\/api\/projects\/([^/]+)\/sessions$/);
+    if (sessionsListMatch && method === 'GET') {
+      const [, projectId] = sessionsListMatch;
+      try {
+        return jsonResp(res, await workspaceManager.listSessions(projectId));
+      } catch (err) {
+        return jsonResp(res, { error: err.message }, 404);
+      }
+    }
+
+    // POST /api/projects/:projectId/sessions
+    if (sessionsListMatch && method === 'POST') {
+      const [, projectId] = sessionsListMatch;
+      try {
+        const body   = JSON.parse(await readBody(req));
+        const result = await workspaceManager.createSession(projectId, body);
+        return jsonResp(res, result, 201);
+      } catch (err) {
+        return jsonResp(res, { error: err.message }, 400);
+      }
+    }
+
+    // POST /api/sessions/:projectId/:sessionId/open
+    const openMatch = pathname.match(/^\/api\/sessions\/([^/]+)\/([^/]+)\/open$/);
+    if (openMatch && method === 'POST') {
+      const [, projectId, sessionId] = openMatch;
+      try {
+        const session    = await workspaceManager.getSession(projectId, sessionId);
+        const sessionDir = path.join(
+          workspaceManager.projectsDir, projectId, 'sessions', sessionId
+        );
+        const configPath = path.join(sessionDir, 'agentorum.config.json');
+
+        // Stop all currently running agents
+        stopAllAgents();
+
+        // Reload config from this session's config file
+        activeConfigPath = configPath;
+        await loadConfig(configPath);
+
+        // Restart chatlog watcher for new chatlog
+        startChatlogWatcher();
+
+        // Broadcast updated config to connected clients
+        broadcast({ type: 'config_updated', config });
+
+        // Update session lastActive
+        await workspaceManager.updateSessionLastActive(projectId, sessionId);
+
+        return jsonResp(res, { ok: true, redirectTo: '/session' });
+      } catch (err) {
+        return jsonResp(res, { error: err.message }, 500);
+      }
+    }
+  }
+
+  // -------------------------------------------------------------------------
+  // Session-mode API routes (available in both modes when a session is active)
+  // -------------------------------------------------------------------------
+
   // --- /api/entries ---
   if (pathname === '/api/entries' && method === 'GET') {
+    if (!config.chatlog) return jsonResp(res, []);
     const raw = await fsp.readFile(config.chatlog, 'utf8').catch(() => '');
     return jsonResp(res, parseEntries(raw));
   }
@@ -440,8 +622,8 @@ async function handleRequest(req, res) {
   if (pathname === '/api/reload' && method === 'POST') {
     const { configPath } = JSON.parse(await readBody(req));
     if (configPath) {
-      process.argv.push('--config', configPath);  // update argv so loadConfig() picks it up
-      await loadConfig();
+      activeConfigPath = configPath;
+      await loadConfig(configPath);
       startChatlogWatcher();
       broadcast({ type: 'config_updated', config });
     }
@@ -455,7 +637,23 @@ async function handleRequest(req, res) {
 // Server startup
 // ---------------------------------------------------------------------------
 async function main() {
-  await loadConfig();
+  // Determine whether to run in workspace mode or single-session mode
+  if (!HAS_CONFIG) {
+    // Workspace mode
+    const wsDir = CLI_WORKSPACE
+      ? path.resolve(CLI_WORKSPACE)
+      : null;  // WorkspaceManager will use default (~/.agentorum)
+
+    workspaceManager = wsDir
+      ? new WorkspaceManager(wsDir)
+      : new WorkspaceManager();
+
+    await workspaceManager.init();
+    console.log(`[agentorum] workspace : ${workspaceManager.workspaceDir}`);
+  } else {
+    // Single-session mode — load config from file
+    await loadConfig(CONFIG_PATH);
+  }
 
   const server = http.createServer((req, res) => {
     handleRequest(req, res).catch(err => {
@@ -467,12 +665,17 @@ async function main() {
   const wss = new WebSocketServer({ server });
   wss.on('connection', async (ws) => {
     clients.add(ws);
-    // Send initial state
-    const raw     = await fsp.readFile(config.chatlog, 'utf8').catch(() => '');
-    const entries = parseEntries(raw);
-    ws.send(JSON.stringify({ type: 'init', entries: entries.slice(-500), total: entries.length, config }));
-    for (const p of config.participants.filter(p => p.type === 'agent')) {
-      ws.send(JSON.stringify({ type: 'agent_status', agent: getAgentStatus(p.id) }));
+    // Send initial state (only if a session is active)
+    if (config.chatlog && fs.existsSync(config.chatlog)) {
+      const raw     = await fsp.readFile(config.chatlog, 'utf8').catch(() => '');
+      const entries = parseEntries(raw);
+      ws.send(JSON.stringify({ type: 'init', entries: entries.slice(-500), total: entries.length, config }));
+      for (const p of config.participants.filter(p => p.type === 'agent')) {
+        ws.send(JSON.stringify({ type: 'agent_status', agent: getAgentStatus(p.id) }));
+      }
+    } else {
+      // Workspace mode with no active session: send empty init
+      ws.send(JSON.stringify({ type: 'init', entries: [], total: 0, config }));
     }
     ws.on('close', () => clients.delete(ws));
     ws.on('error', () => clients.delete(ws));
@@ -488,15 +691,22 @@ async function main() {
   const PORT = config.port || CLI_PORT;
   server.listen(PORT, '127.0.0.1', () => {
     console.log(`[agentorum] http://127.0.0.1:${PORT}`);
-    console.log(`[agentorum] chatlog : ${config.chatlog}`);
-    console.log(`[agentorum] config  : ${CONFIG_PATH}`);
+    if (HAS_CONFIG) {
+      console.log(`[agentorum] chatlog : ${config.chatlog}`);
+      console.log(`[agentorum] config  : ${activeConfigPath}`);
+    } else {
+      console.log(`[agentorum] mode    : workspace`);
+    }
     if (AUTO_OPEN) {
       const opener = process.platform === 'win32' ? 'start' : process.platform === 'darwin' ? 'open' : 'xdg-open';
       spawn(opener, [`http://127.0.0.1:${PORT}`], { shell: true, detached: true, stdio: 'ignore' }).unref();
     }
   });
 
-  startChatlogWatcher();
+  // Start chatlog watcher only in single-session mode
+  if (HAS_CONFIG) {
+    startChatlogWatcher();
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -510,6 +720,12 @@ export async function startServer(opts = {}) {
     const idx = process.argv.indexOf('--config');
     if (idx !== -1) { process.argv[idx + 1] = opts.configPath; }
     else            { process.argv.push('--config', opts.configPath); }
+  }
+  // opts.workspaceDir can override the workspace directory
+  if (opts.workspaceDir) {
+    const idx = process.argv.indexOf('--workspace');
+    if (idx !== -1) { process.argv[idx + 1] = opts.workspaceDir; }
+    else            { process.argv.push('--workspace', opts.workspaceDir); }
   }
   return main();
 }

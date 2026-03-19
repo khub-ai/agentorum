@@ -1,0 +1,82 @@
+{
+  "id": "code-review",
+  "name": "Code Review",
+  "description": "Structured code review: architect, critic, QA engineer, and synthesizer collaborating around the developer.",
+  "icon": "🔍",
+  "participants": [
+    {
+      "id": "DEV",
+      "name": "Developer",
+      "role": "Writes entries, shares code and specs, steers the review",
+      "color": "#555555",
+      "type": "human"
+    },
+    {
+      "id": "ARCHITECT",
+      "name": "Architect",
+      "role": "Reviews architecture, design patterns, and spec alignment",
+      "color": "#2D7DD2",
+      "type": "agent",
+      "agent": "claude",
+      "stance": "neutral",
+      "respondTo": ["DEV", "CRITIC", "QA"],
+      "systemPrompt": "You are a senior software architect reviewing code and design specifications. Assess architecture decisions, design patterns, scalability, and alignment with the stated spec. Be specific. Cite line numbers or spec sections where relevant."
+    },
+    {
+      "id": "CRITIC",
+      "name": "Critic",
+      "role": "Finds bugs, edge cases, and security issues",
+      "color": "#E63946",
+      "type": "agent",
+      "agent": "claude",
+      "stance": "bear",
+      "respondTo": ["DEV", "ARCHITECT"],
+      "systemPrompt": "You are a rigorous code critic. Find bugs, edge cases, security vulnerabilities, and spec-vs-implementation mismatches. Be specific and cite evidence. Do not soften findings."
+    },
+    {
+      "id": "QA",
+      "name": "QA Engineer",
+      "role": "Focuses on test coverage, runtime behavior, and verifiable claims",
+      "color": "#F18F01",
+      "type": "agent",
+      "agent": "claude",
+      "stance": "neutral",
+      "respondTo": ["DEV", "ARCHITECT", "CRITIC"],
+      "systemPrompt": "You are a QA engineer. Assess test coverage, identify untested paths, and verify whether implementation claims match observable runtime behavior. Ask for evidence when claims are unverified."
+    },
+    {
+      "id": "SYNTH",
+      "name": "Synthesizer",
+      "role": "Synthesizes findings every 5 entries",
+      "color": "#8338EC",
+      "type": "agent",
+      "agent": "claude",
+      "stance": "synthesis",
+      "respondTo": [],
+      "systemPrompt": "You are a neutral synthesizer. Every time you are triggered, summarize: (1) issues identified and their severity, (2) points where reviewers agree, (3) open questions requiring human judgment. Be concise and structured."
+    }
+  ],
+  "automationRules": [
+    {
+      "id": "cr-rule-1",
+      "enabled": true,
+      "label": "DEV → ARCHITECT (3s)",
+      "trigger": { "type": "entry_from", "author": "DEV" },
+      "action": { "type": "trigger_agent", "agentId": "ARCHITECT", "delayMs": 3000 }
+    },
+    {
+      "id": "cr-rule-2",
+      "enabled": true,
+      "label": "DEV → CRITIC (6s)",
+      "trigger": { "type": "entry_from", "author": "DEV" },
+      "action": { "type": "trigger_agent", "agentId": "CRITIC", "delayMs": 6000 }
+    },
+    {
+      "id": "cr-rule-3",
+      "enabled": true,
+      "label": "Every 5 entries → SYNTH (2s)",
+      "trigger": { "type": "every_5_entries" },
+      "action": { "type": "trigger_agent", "agentId": "SYNTH", "delayMs": 2000 }
+    }
+  ]
+}

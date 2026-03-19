@@ -1,0 +1,128 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Agentorum — Projects</title>
+  <link rel="stylesheet" href="home.css">
+</head>
+<body>
+
+<!-- ── Top bar ──────────────────────────────────────────────────────────── -->
+<header id="home-topbar">
+  <div id="home-topbar-left">
+    <span id="home-logo">⬡ Agentorum</span>
+    <span id="workspace-name"></span>
+  </div>
+  <div id="home-topbar-right">
+    <button id="btn-new-project" class="btn-primary">+ New Project</button>
+  </div>
+</header>
+
+<!-- ── Main content ─────────────────────────────────────────────────────── -->
+<div id="home-layout">
+
+  <!-- Projects grid -->
+  <main id="home-main">
+    <div id="projects-header">
+      <h1 id="projects-title">Projects</h1>
+    </div>
+    <div id="projects-grid">
+      <!-- Populated by home.js -->
+    </div>
+    <!-- Empty state -->
+    <div id="empty-state" style="display:none">
+      <div id="empty-state-inner">
+        <div id="empty-icon">⬡</div>
+        <h2>Start your first project</h2>
+        <p>A project groups related debate sessions together. Pick a scenario — or create your own — and dive in.</p>
+        <button id="btn-empty-new-project" class="btn-primary">+ Create Project</button>
+      </div>
+    </div>
+  </main>
+
+  <!-- Sessions panel (slides in when a project is selected) -->
+  <aside id="sessions-panel" class="panel-hidden">
+    <div id="sessions-panel-header">
+      <button id="btn-close-sessions" title="Close">✕</button>
+      <div id="sessions-panel-meta">
+        <h2 id="sessions-project-name"></h2>
+        <span id="sessions-project-scenario" class="scenario-badge"></span>
+      </div>
+      <button id="btn-new-session" class="btn-primary btn-sm">+ New Session</button>
+    </div>
+    <div id="sessions-list">
+      <!-- Populated by home.js -->
+    </div>
+    <div id="sessions-empty" style="display:none">
+      <p>No sessions yet. Create one to start debating.</p>
+    </div>
+  </aside>
+</div>
+
+<!-- ── Loading overlay ──────────────────────────────────────────────────── -->
+<div id="loading-overlay">
+  <div id="loading-spinner"></div>
+</div>
+
+<!-- ── Error toast ──────────────────────────────────────────────────────── -->
+<div id="error-toast" style="display:none"></div>
+
+<!-- ── New Project modal ────────────────────────────────────────────────── -->
+<div id="modal-project" class="modal-overlay" style="display:none" role="dialog" aria-modal="true" aria-labelledby="modal-project-title">
+  <div class="modal-box">
+    <div class="modal-header">
+      <h2 id="modal-project-title">New Project</h2>
+      <button class="modal-close" data-close="modal-project">✕</button>
+    </div>
+
+    <div class="modal-body">
+      <label class="field-label" for="proj-name">Project name <span class="required">*</span></label>
+      <input id="proj-name" type="text" placeholder="e.g. Series A Evaluation" autocomplete="off">
+
+      <label class="field-label" for="proj-description">Description</label>
+      <textarea id="proj-description" rows="2" placeholder="Optional — what is this project about?"></textarea>
+
+      <label class="field-label">Default scenario</label>
+      <div id="scenario-cards">
+        <!-- Populated by home.js -->
+      </div>
+    </div>
+
+    <div class="modal-footer">
+      <button class="btn-secondary" data-close="modal-project">Cancel</button>
+      <button id="btn-create-project" class="btn-primary">Create Project</button>
+    </div>
+  </div>
+</div>
+
+<!-- ── New Session modal ────────────────────────────────────────────────── -->
+<div id="modal-session" class="modal-overlay" style="display:none" role="dialog" aria-modal="true" aria-labelledby="modal-session-title">
+  <div class="modal-box">
+    <div class="modal-header">
+      <h2 id="modal-session-title">New Session</h2>
+      <button class="modal-close" data-close="modal-session">✕</button>
+    </div>
+
+    <div class="modal-body">
+      <label class="field-label" for="sess-name">Session name <span class="required">*</span></label>
+      <input id="sess-name" type="text" placeholder="e.g. Week 3 Review" autocomplete="off">
+
+      <label class="field-label" for="sess-scenario">Scenario override <span class="optional">(optional)</span></label>
+      <select id="sess-scenario">
+        <option value="">Use project default</option>
+      </select>
+
+      <p id="sess-project-label" class="field-hint"></p>
+    </div>
+
+    <div class="modal-footer">
+      <button class="btn-secondary" data-close="modal-session">Cancel</button>
+      <button id="btn-create-session" class="btn-primary">Create &amp; Open</button>
+    </div>
+  </div>
+</div>
+
+<script type="module" src="home.js"></script>
+</body>
+</html>

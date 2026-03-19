@@ -11,6 +11,7 @@
 <!-- ── Top bar ─────────────────────────────────────────────────────────── -->
 <header id="topbar">
   <div id="topbar-left">
+    <a id="btn-back-home" href="/" title="Back to Projects" style="display:none">← Projects</a>
     <span id="logo">⬡ Agentorum</span>
     <div id="participant-pills"></div>
   </div>
@@ -99,6 +100,12 @@
   </div>
 </div>
 
+<script>
+  // Show "← Projects" link only when running in workspace mode
+  fetch('/api/workspace').then(r => {
+    if (r.ok) document.getElementById('btn-back-home').style.display = 'inline-flex';
+  }).catch(() => {});
+</script>
 <script type="module" src="app.js"></script>
 <!-- Markdown renderer (no build step required) -->
 <script src="https://cdn.jsdelivr.net/npm/marked@12/marked.min.js"></script>

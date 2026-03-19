@@ -9,9 +9,11 @@
   ],
   "scripts": {
     "start":             "node packages/server/server.mjs --open",
+    "start:workspace":   "node packages/server/server.mjs --open",
     "start:vc-debate":   "node packages/server/server.mjs --config examples/vc-debate/agentorum.config.json --open",
     "start:policy":      "node packages/server/server.mjs --config examples/policy-mediation/agentorum.config.json --open",
 
+    "electron":          "electron packages/electron/main.mjs",
     "electron:dev":      "electron packages/electron/main.mjs",
     "electron:dev:vc":   "electron packages/electron/main.mjs --config examples/vc-debate/agentorum.config.json",
     "electron:build":    "electron-builder --config electron-builder.yml",
