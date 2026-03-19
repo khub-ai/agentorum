@@ -253,6 +253,13 @@ function scheduleProcess() {
 // ---------------------------------------------------------------------------
 async function main() {
   await loadParticipantConfig();
+
+  // Interactive participants post via the API themselves — the watcher does not fire for them.
+  if (participantConfig?.mode === 'interactive') {
+    console.log(`[${PARTICIPANT_ID}] mode=interactive — skipping automated watch`);
+    process.exit(0);
+  }
+
   await loadRules();
 
   if (!fs.existsSync(CHATLOG)) {

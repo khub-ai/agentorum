@@ -358,7 +358,25 @@ label { display: flex; align-items: center; gap: 6px; cursor: pointer; }
 .agent-status.running { background: #16a34a22; color: #16a34a; }
 .agent-status.stopped { background: var(--badge-bg); color: var(--text-muted); }
 
-.agent-actions { display: flex; gap: 4px; flex-wrap: wrap; }
+.agent-label-name { font-size: 11px; color: var(--text-muted); }
+
+.agent-mode-badge {
+  font-size: 9px;
+  font-weight: 600;
+  padding: 1px 6px;
+  border-radius: 999px;
+  text-transform: uppercase;
+  letter-spacing: .04em;
+}
+.agent-mode-badge.interactive { background: #7c3aed22; color: #7c3aed; }
+
+.agent-interactive-hint {
+  font-size: 10px;
+  color: var(--text-muted);
+  font-style: italic;
+}
+
+.agent-actions { display: flex; gap: 4px; flex-wrap: wrap; align-items: center; }
 .agent-actions button { font-size: 11px; padding: 2px 7px; }
 
 /* ---------------------------------------------------------------------------
@@ -444,6 +462,64 @@ label { display: flex; align-items: center; gap: 6px; cursor: pointer; }
 #config-modal-inner label { flex-direction: column; align-items: flex-start; gap: 4px; }
 #config-modal-inner input { width: 100%; }
 #config-actions { display: flex; gap: 8px; justify-content: flex-end; }
+
+/* ---------------------------------------------------------------------------
+   Initialize Agents panel
+   ------------------------------------------------------------------------- */
+#init-agents-section { margin-top: 4px; }
+
+.init-hint {
+  font-size: 11px;
+  color: var(--text-muted);
+  line-height: 1.45;
+  margin-bottom: 6px;
+}
+
+.init-agent-card {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 8px 10px;
+  margin-bottom: 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.init-agent-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.init-agent-id    { font-weight: 700; font-size: 12px; }
+.init-agent-label { font-size: 11px; color: var(--text-muted); }
+
+.init-command-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+}
+
+.init-command {
+  flex: 1;
+  font-family: 'Cascadia Code','Fira Mono',monospace;
+  font-size: 10px;
+  background: var(--bg-sidebar);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 4px 6px;
+  word-break: break-all;
+  line-height: 1.4;
+  color: var(--text);
+}
+
+.btn-copy {
+  font-size: 10px;
+  padding: 2px 7px;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
 
 /* ---------------------------------------------------------------------------
    Responsive

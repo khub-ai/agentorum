@@ -2,12 +2,12 @@
   "bundleVersion": 1,
   "id": "software-dev-review",
   "name": "Software Development Review",
-  "description": "Multi-agent code and spec review with Claude Code and OpenAI Codex",
+  "description": "Multi-agent code and spec review with Claude Code and OpenAI Codex running interactively on your local machine.",
   "icon": "💻",
   "prerequisites": [
     "Node.js 18+",
-    "Claude Code CLI (claude --version)",
-    "OpenAI Codex CLI (codex --version)"
+    "Claude Code CLI installed and authenticated (claude --version)",
+    "OpenAI Codex CLI installed and authenticated (codex --version)"
   ],
   "project": {
     "name": "Software Development Review",
@@ -22,14 +22,14 @@
         "label": "Developer",
         "color": "#555555",
         "agent": "human",
-        "stance": "neutral"
+        "mode": "human"
       },
       {
         "id": "CLAUDE-DEV",
         "label": "Claude Code",
         "color": "#D97757",
         "agent": "claude",
-        "stance": "neutral",
+        "mode": "interactive",
         "respondTo": ["HUMAN", "CODEX-DEV"],
         "systemPrompt": "You are Claude Code, an AI coding agent participating in a structured code review. Review all code, specs, and feedback in the shared log. Identify bugs, design issues, spec-vs-implementation mismatches, and missing edge cases. Be specific — cite line numbers, function names, or spec sections. Keep responses focused and under 300 words."
       },
@@ -38,34 +38,19 @@
         "label": "OpenAI Codex",
         "color": "#10A37F",
         "agent": "codex",
-        "stance": "neutral",
+        "mode": "interactive",
         "respondTo": ["HUMAN", "CLAUDE-DEV"],
         "systemPrompt": "You are OpenAI Codex, an AI coding agent participating in a structured code review. Review all code, specs, and feedback in the shared log. Independently assess correctness, security, and maintainability. Do not simply agree with Claude Code — form your own view. Be specific and concise, under 300 words."
       }
     ],
-    "automationRules": [
-      {
-        "id": "rule-1",
-        "enabled": true,
-        "label": "HUMAN → CLAUDE-DEV",
-        "trigger": { "type": "entry_from", "author": "HUMAN" },
-        "action": { "type": "trigger_agent", "agentId": "CLAUDE-DEV", "delayMs": 3000 }
-      },
-      {
-        "id": "rule-2",
-        "enabled": true,
-        "label": "HUMAN → CODEX-DEV",
-        "trigger": { "type": "entry_from", "author": "HUMAN" },
-        "action": { "type": "trigger_agent", "agentId": "CODEX-DEV", "delayMs": 6000 }
-      }
-    ]
+    "automationRules": []
   },
   "sessionTemplate": {
     "namePrefix": "Code Review",
-    "rules": "You are participating in a structured multi-agent code review on this project.\n\nThe file chatlog.md is the shared review log. It must remain readable to humans and make good use of Markdown.\n\n## Required entry format\n\nEvery response must be appended to chatlog.md using this exact structure:\n\n### YYYY-MM-DD HH:MM:SS - PARTICIPANT-ID\n\nResponse text goes here.\n\n## Formatting rules\n\n- Use one heading per entry in the exact form above.\n- Leave one blank line after the heading.\n- Write in clear, readable Markdown prose.\n- Use numbered lists for structured findings. Use bullet lists for lighter items.\n- Use backticks for file names, function names, variable names, and literal values.\n- If responding to a specific participant, begin with a short line such as: In response to CLAUDE-DEV:\n- Leave one blank line between paragraphs and list blocks.\n- Preserve chronological order. Append new entries at the end only.\n- Do not rewrite or delete prior entries.\n\n## Content guidance\n\n- Be specific. Vague findings like 'this could be improved' are not useful.\n- Cite evidence: line numbers, function names, spec sections, or runtime behavior.\n- Distinguish severity: label findings as critical, major, or minor.\n- When disagreeing with another agent, explain why — do not just restate your position.\n- If you have nothing new to add, output exactly: NO_RESPONSE_NEEDED",
+    "rules": "You are participating in a structured multi-agent code review.\n\nThe shared review log is chatlog.md. It must remain readable to humans and make good use of Markdown.\n\n## Content guidance\n\n- Be specific. Vague findings like 'this could be improved' are not useful.\n- Cite evidence: line numbers, function names, spec sections, or runtime behaviour.\n- Label finding severity: critical, major, or minor.\n- When disagreeing with another agent, explain why — do not just restate your position.\n- If you have nothing new to add, say so briefly and stop.\n\n## Chatlog entry format\n\nEvery response posted to the log must use this exact header:\n\n### YYYY-MM-DD HH:MM:SS - PARTICIPANT-ID\n\nFormatting rules:\n- One blank line after the heading.\n- Clear, readable Markdown prose.\n- Numbered lists for structured findings; bullet lists for lighter items.\n- Backticks for file names, function names, variable names, and literal values.\n- If responding to a specific participant: begin with 'In response to PARTICIPANT-ID:'\n- One blank line between paragraphs and list blocks.\n- Append new entries at the end only. Never edit or delete prior entries.\n\nYour identity, chatlog path, posting API, and initialisation command are in your\npersonalised rules file — see the 'Initialize Agents' panel in the Agentorum UI.",
     "initialEntry": {
       "author": "HUMAN",
-      "body": "## Session started\n\nPaste your code, spec, or question below to begin the review."
+      "body": "## Code review session started\n\nPaste your code, spec, or question below to begin the review."
     }
   }
 }

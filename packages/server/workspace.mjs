@@ -6,6 +6,7 @@ import path        from 'node:path';
 import fs          from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import os          from 'node:os';
+import crypto      from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -46,6 +47,67 @@ async function safeReadDir(dir) {
   } catch {
     return [];
   }
+}
+
+// ---------------------------------------------------------------------------
+// Per-participant rules file generator
+// ---------------------------------------------------------------------------
+function buildParticipantRules({ participant, sharedRules, chatlogPath, rulesFilePath, token, port, sessionName }) {
+  const now      = new Date().toISOString();
+  const cont     = process.platform === 'win32' ? '^' : '\\';
+  const curlCmd  = [
+    `curl -X POST http://localhost:${port}/api/entries ${cont}`,
+    `  -H "Content-Type: application/json" ${cont}`,
+    `  -H "X-Agentorum-Token: ${token}" ${cont}`,
+    `  -d "{\\"author\\":\\"${participant.id}\\",\\"body\\":\\"your finding here\\"}"`
+  ].join('\n');
+
+  return `# Agentorum Session Rules — ${participant.id}
+# Session  : ${sessionName}
+# Generated: ${now}
+
+${sharedRules}
+
+---
+
+## Your Identity in This Session
+
+Author ID    : ${participant.id}
+Display Name : ${participant.label || participant.id}
+
+---
+
+## Reading the Chatlog
+
+The shared chatlog is at:
+  ${chatlogPath}
+
+Reading strategy (minimise cost and context use):
+1. If summary.md exists in the same folder, read it first for historical context.
+2. Read only the LAST 50 entries of chatlog.md for recent context.
+3. Avoid reading the full chatlog unless specifically required.
+
+---
+
+## Posting Your Findings
+
+Do NOT write directly to chatlog.md. Post via the Agentorum API:
+
+${curlCmd}
+
+(On Linux/Mac use \\ instead of ^ for line continuation.)
+
+If the server responds with {"error":"invalid_token"}, re-read this file to refresh your context.
+
+---
+
+## Initialisation
+
+To connect your interactive session to this Agentorum session, paste the
+following line into your agent's window:
+
+  Read this file and confirm your role: ${rulesFilePath}
+`;
 }
 
 // Count lines starting with '### ' as a proxy for entry count
@@ -414,14 +476,43 @@ export class WorkspaceManager {
       overrides: {}
     });
 
-    // Write rules.txt from bundle if provided, and reference it in the config
-    if (bundle.sessionTemplate?.rules) {
-      const rulesPath = path.join(path.dirname(configPath), 'rules.txt');
-      await fs.writeFile(rulesPath, bundle.sessionTemplate.rules, 'utf8');
+    const sessionDir = path.dirname(configPath);
+
+    // Generate session token and store in session.json
+    const sessionToken = crypto.randomUUID().replace(/-/g, '').slice(0, 16);
+    const sessionFilePath = path.join(sessionDir, 'session.json');
+    const sessionData = JSON.parse(await fs.readFile(sessionFilePath, 'utf8'));
+    sessionData.token = sessionToken;
+    await writeJson(sessionFilePath, sessionData);
+
+    // Write shared rules.txt from bundle if provided, and reference it in the config
+    const sharedRules = bundle.sessionTemplate?.rules || '';
+    if (sharedRules) {
+      const rulesPath = path.join(sessionDir, 'rules.txt');
+      await fs.writeFile(rulesPath, sharedRules, 'utf8');
       // Patch the resolved config to reference rules.txt
       const cfg = JSON.parse(await fs.readFile(configPath, 'utf8'));
       cfg.rules = 'rules.txt';
       await writeJson(configPath, cfg);
+    }
+
+    // Generate per-participant rules files for interactive participants
+    const port = 3737;
+    const interactiveParticipants = (bundle.scenario.participants || [])
+      .filter(p => p.mode === 'interactive');
+    for (const p of interactiveParticipants) {
+      const rulesFileName = `rules-${p.id}.txt`;
+      const rulesFilePath = path.join(sessionDir, rulesFileName);
+      const content = buildParticipantRules({
+        participant: p,
+        sharedRules,
+        chatlogPath,
+        rulesFilePath,
+        token: sessionToken,
+        port,
+        sessionName
+      });
+      await fs.writeFile(rulesFilePath, content, 'utf8');
     }
 
     // Append the initialEntry if defined

@@ -1,0 +1,14 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "agentorum-vc-debate",
+      "runtimeExecutable": "node",
+      "runtimeArgs": [
+        "packages/server/server.mjs",
+        "--config", "examples/vc-debate/agentorum.config.json"
+      ],
+      "port": 3737
+    }
+  ]
+}

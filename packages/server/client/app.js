@@ -39,6 +39,7 @@ function connect() {
         renderAll();
         renderParticipantPills();
         renderAgentCards();
+        renderInitAgentsPanel();
         renderComposeAuthorOptions();
         renderRules();
         updateLoadOlderBtn();
@@ -376,22 +377,29 @@ function renderAgentCards() {
 }
 
 function makeAgentCard(p) {
-  const s    = agentStatusMap[p.id] || { status: 'stopped' };
-  const card = document.createElement('div');
+  const s           = agentStatusMap[p.id] || { status: 'stopped' };
+  const isInteractive = p.mode === 'interactive';
+  const card        = document.createElement('div');
   card.className    = 'agent-card';
   card.dataset.id   = p.id;
+  const label       = p.label || p.name || p.id;
+  const modeBadge   = isInteractive
+    ? `<span class="agent-mode-badge interactive" title="This agent is managed interactively — use the Initialize Agents panel below">interactive</span>`
+    : '';
+  const actions     = isInteractive
+    ? `<span class="agent-interactive-hint">Post via API · see Initialize Agents ↓</span>`
+    : `<button class="btn-start"   data-id="${p.id}">▶ Start</button>
+       <button class="btn-stop"    data-id="${p.id}">■ Stop</button>
+       <button class="btn-trigger" data-id="${p.id}">⚡ Trigger</button>
+       <button class="btn-log"     data-id="${p.id}">📋 Logs</button>`;
   card.innerHTML = `
     <div class="agent-card-header">
       <span class="agent-id" style="color:${participantColor(p.id)}">${p.id}</span>
-      <span class="agent-status ${s.status}">${s.status}</span>
+      <span class="agent-label-name">${label}</span>
+      ${modeBadge}
+      ${!isInteractive ? `<span class="agent-status ${s.status}">${s.status}</span>` : ''}
     </div>
-    <div class="agent-role">${p.role}</div>
-    <div class="agent-actions">
-      <button class="btn-start"   data-id="${p.id}">▶ Start</button>
-      <button class="btn-stop"    data-id="${p.id}">■ Stop</button>
-      <button class="btn-trigger" data-id="${p.id}">⚡ Trigger</button>
-      <button class="btn-log"     data-id="${p.id}">📋 Logs</button>
-    </div>
+    <div class="agent-actions">${actions}</div>
     ${s.lastResponseAt ? `<div class="agent-last">Last: ${timeAgo(s.lastResponseAt.replace('T',' ').slice(0,19))}</div>` : ''}
   `;
   return card;
@@ -414,6 +422,47 @@ document.getElementById('agent-cards').addEventListener('click', async e => {
   if (btn.classList.contains('btn-stop'))    await api(`/api/participants/${id}/stop`,  'POST');
   if (btn.classList.contains('btn-trigger')) await api(`/api/participants/${id}/trigger`, 'POST');
   if (btn.classList.contains('btn-log'))     openLogDrawer(id);
+});
+
+// ---------------------------------------------------------------------------
+// Initialize Agents panel
+// ---------------------------------------------------------------------------
+async function renderInitAgentsPanel() {
+  const section = document.getElementById('init-agents-section');
+  if (!section) return;
+  const data = await api('/api/session');
+  if (!data || !data.active || !data.interactiveParticipants?.length) {
+    section.style.display = 'none';
+    return;
+  }
+  section.style.display = 'block';
+  const container = document.getElementById('init-agent-cards');
+  container.innerHTML = '';
+  data.interactiveParticipants.forEach(p => {
+    const card = document.createElement('div');
+    card.className = 'init-agent-card';
+    const color = participantColor(p.id);
+    card.innerHTML = `
+      <div class="init-agent-header">
+        <span class="init-agent-id" style="color:${color}">${p.id}</span>
+        <span class="init-agent-label">${p.label}</span>
+      </div>
+      <div class="init-command-row">
+        <code class="init-command">${p.initCommand}</code>
+        <button class="btn-copy" data-cmd="${p.initCommand.replace(/"/g, '&quot;')}">Copy</button>
+      </div>
+    `;
+    container.appendChild(card);
+  });
+}
+
+document.getElementById('init-agent-cards').addEventListener('click', e => {
+  const btn = e.target.closest('.btn-copy');
+  if (!btn) return;
+  navigator.clipboard.writeText(btn.dataset.cmd).then(() => {
+    btn.textContent = 'Copied!';
+    setTimeout(() => { btn.textContent = 'Copy'; }, 2000);
+  });
 });
 
 // ---------------------------------------------------------------------------

@@ -81,8 +81,9 @@ const DEFAULT_CONFIG = {
   automationRules: []
 };
 
-let config         = { ...DEFAULT_CONFIG };
+let config           = { ...DEFAULT_CONFIG };
 let activeConfigPath = CONFIG_PATH;  // tracks the current config file path (mutable in workspace mode)
+let activeSessionToken = null;       // session token for interactive agent validation
 
 async function loadConfig(configFilePath) {
   const target = configFilePath || activeConfigPath;
@@ -102,6 +103,17 @@ async function loadConfig(configFilePath) {
   // Resolve chatlog relative to config file's directory
   if (target) {
     config.chatlog = path.resolve(path.dirname(target), config.chatlog);
+  }
+}
+
+async function loadSessionToken() {
+  if (!activeConfigPath) { activeSessionToken = null; return; }
+  const sessionFile = path.join(path.dirname(activeConfigPath), 'session.json');
+  try {
+    const data = JSON.parse(await fsp.readFile(sessionFile, 'utf8'));
+    activeSessionToken = data.token || null;
+  } catch {
+    activeSessionToken = null;
   }
 }
 
@@ -233,6 +245,11 @@ function getAgentStatus(id) {
 }
 
 function startAgent(participant) {
+  // Interactive participants manage their own sessions — do not spawn a watcher
+  if (participant.mode === 'interactive') {
+    console.log(`[agentorum] ${participant.id} is interactive — not auto-starting watcher`);
+    return;
+  }
   const { id } = participant;
   if (agentProcs.has(id) && agentProcs.get(id).status === 'running') return;
 
@@ -356,7 +373,7 @@ function evaluateRules(entry) {
     if (!rule.enabled) continue;
     if (rule.trigger?.type === 'entry_from' && rule.trigger?.author === entry.author) {
       const participant = config.participants.find(p => p.id === rule.action?.agentId);
-      if (participant) {
+      if (participant && participant.mode !== 'interactive') {
         setTimeout(() => triggerAgent(participant), rule.action?.delayMs ?? 0);
       }
     }
@@ -365,7 +382,7 @@ function evaluateRules(entry) {
       const total = _lastEntries.length;
       if (total > 0 && total % 5 === 0) {
         const participant = config.participants.find(p => p.id === rule.action?.agentId);
-        if (participant) {
+        if (participant && participant.mode !== 'interactive') {
           setTimeout(() => triggerAgent(participant), rule.action?.delayMs ?? 0);
         }
       }
@@ -543,6 +560,7 @@ async function handleRequest(req, res) {
         // Reload config from this session's config file
         activeConfigPath = configPath;
         await loadConfig(configPath);
+        await loadSessionToken();
 
         // Restart chatlog watcher for new chatlog
         startChatlogWatcher();
@@ -570,6 +588,7 @@ async function handleRequest(req, res) {
         stopAllAgents();
         activeConfigPath = configPath;
         await loadConfig(configPath);
+        await loadSessionToken();
         startChatlogWatcher();
         broadcast({ type: 'config_updated', config });
         await workspaceManager.updateSessionLastActive(projectId, sessionId);
@@ -651,8 +670,66 @@ async function handleRequest(req, res) {
   }
   if (pathname === '/api/entries' && method === 'POST') {
     const { author, body, meta } = JSON.parse(await readBody(req));
+    // Soft token validation for interactive participants:
+    // if a token header is present and wrong, reject; if absent, allow through (UI posts).
+    if (activeSessionToken) {
+      const participant = config.participants.find(p => p.id === author);
+      if (participant?.mode === 'interactive') {
+        const provided = req.headers['x-agentorum-token'];
+        if (provided && provided !== activeSessionToken) {
+          const sessionDir = activeConfigPath ? path.dirname(activeConfigPath) : '';
+          return jsonResp(res, {
+            error: 'invalid_token',
+            message: `Session token incorrect. Re-initialise your agent: Read this file and confirm your role: ${path.join(sessionDir, `rules-${author}.txt`)}`
+          }, 401);
+        }
+      }
+    }
     await fsp.appendFile(config.chatlog, formatEntry(author, body, meta || {}), 'utf8');
     return jsonResp(res, { ok: true });
+  }
+
+  // --- /api/session — current session info and interactive agent init commands ---
+  if (pathname === '/api/session' && method === 'GET') {
+    if (!activeConfigPath) return jsonResp(res, { active: false });
+    const sessionDir = path.dirname(activeConfigPath);
+    const interactiveParticipants = (config.participants || [])
+      .filter(p => p.mode === 'interactive')
+      .map(p => {
+        const rulesFile = path.join(sessionDir, `rules-${p.id}.txt`);
+        return {
+          id:          p.id,
+          label:       p.label || p.name || p.id,
+          color:       p.color,
+          rulesFile,
+          initCommand: `Read this file and confirm your role: ${rulesFile}`
+        };
+      });
+    return jsonResp(res, { active: true, sessionDir, token: activeSessionToken, interactiveParticipants });
+  }
+
+  // --- /api/context/:participantId — role-aware context snippet for interactive agents ---
+  const contextMatch = pathname.match(/^\/api\/context\/([^/]+)$/);
+  if (contextMatch && method === 'GET') {
+    const [, participantId] = contextMatch;
+    const participant = config.participants.find(p => p.id === participantId);
+    if (!participant) return jsonResp(res, { error: 'participant not found' }, 404);
+    const sessionDir = activeConfigPath ? path.dirname(activeConfigPath) : path.dirname(config.chatlog);
+    let summary = null;
+    try { summary = await fsp.readFile(path.join(sessionDir, 'summary.md'), 'utf8'); } catch { /* none yet */ }
+    const raw          = await fsp.readFile(config.chatlog, 'utf8').catch(() => '');
+    const entries      = parseEntries(raw);
+    const recentEntries = entries.slice(-50);
+    return jsonResp(res, {
+      authorId:      participantId,
+      label:         participant.label || participant.name || participantId,
+      role:          participant.systemPrompt || participant.role || '',
+      summary,
+      recentEntries,
+      totalEntries:  entries.length,
+      apiEndpoint:  `http://localhost:${config.port || 3737}/api/entries`,
+      token:         activeSessionToken
+    });
   }
 
   // --- /api/participants ---
@@ -747,6 +824,7 @@ async function main() {
 
       activeConfigPath = configPath;
       await loadConfig(configPath);
+      await loadSessionToken();
 
       console.log(`[agentorum] Bundle loaded: created project "${projectId}", session "${sessionId}"`);
 
