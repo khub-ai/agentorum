@@ -5,3 +5,8 @@ node_modules/
 
 # Electron build output
 dist/
+
+# Editor and IDE local config (machine-specific, not for the repo)
+.claude/
+.vscode/
+.idea/
