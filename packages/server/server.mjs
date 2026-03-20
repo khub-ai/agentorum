@@ -331,10 +331,18 @@ function startAgent(participant) {
     '--chatlog',        config.chatlog,
     '--config',         configArg,
     '--rules',          rulesArg,
-  ], { stdio: ['ignore', 'pipe', 'pipe'] });
+  ], { stdio: ['ignore', 'pipe', 'pipe'], shell: false }); // node is always a real binary; shell not needed
 
   const state = { process: proc, status: 'running', pid: proc.pid, logs: [], lastResponseAt: null };
   agentProcs.set(id, state);
+
+  // Prevent unhandled 'error' events from crashing the server
+  proc.on('error', (err) => {
+    console.error(`[agentorum] watcher spawn error for ${id}: ${err.message}`);
+    state.status = 'error';
+    state.pid    = null;
+    broadcastAgentStatus(id);
+  });
 
   const onData = (src) => (chunk) => {
     const line = chunk.toString().trim();
@@ -373,6 +381,14 @@ function stopAllAgents() {
 }
 
 async function triggerAgent(participant) {
+  // Interactive and api agents are never spawned by the server.
+  // This guard is a second line of defence — evaluateRules() already skips
+  // these modes, but the /api/participants/:id/trigger route calls us directly.
+  if (participant.mode === 'interactive' || participant.mode === 'api') {
+    console.log(`[agentorum] triggerAgent: skipping ${participant.id} (mode=${participant.mode || 'interactive'})`);
+    return;
+  }
+
   const raw    = await fsp.readFile(config.chatlog, 'utf8').catch(() => '');
   const prompt = buildPrompt(participant, raw);
 
@@ -382,9 +398,24 @@ async function triggerAgent(participant) {
     : ['claude', ['--print']];
 
   return new Promise((resolve) => {
-    const proc = spawn(cmd, cmdArgs, { stdio: ['pipe', 'pipe', 'pipe'] });
-    proc.stdin.write(prompt);
-    proc.stdin.end();
+    // shell:true is required on Windows so that .cmd wrappers (claude.cmd,
+    // codex.cmd) are found.  Without it, spawn throws ENOENT on Windows.
+    const proc = spawn(cmd, cmdArgs, { stdio: ['pipe', 'pipe', 'pipe'], shell: true });
+
+    // An unhandled 'error' event crashes the Node process.  Catch it here so
+    // a missing or broken CLI is a logged warning, not a server crash.
+    proc.on('error', (err) => {
+      console.error(`[agentorum] failed to spawn ${cmd} for ${participant.id}: ${err.message}`);
+      resolve('');
+    });
+
+    // Guard stdin: if spawn failed, writing to stdin emits an unhandled error
+    // event on the stream that crashes the server.  Silence it here.
+    proc.stdin.on('error', () => {});
+    try {
+      proc.stdin.write(prompt);
+      proc.stdin.end();
+    } catch { /* spawn failed; proc.on('error') handler above resolves */ }
     let stdout = '';
     proc.stdout.on('data', d => { stdout += d.toString(); });
     proc.on('close', async () => {
@@ -589,12 +620,29 @@ async function handleRequest(req, res) {
       }
     }
 
-    // GET /api/projects/:projectId
+    // GET /api/projects/:projectId   DELETE /api/projects/:projectId
     const projectMatch = pathname.match(/^\/api\/projects\/([^/]+)$/);
     if (projectMatch && method === 'GET') {
       const [, projectId] = projectMatch;
       try {
         return jsonResp(res, await workspaceManager.getProject(projectId));
+      } catch (err) {
+        return jsonResp(res, { error: err.message }, 404);
+      }
+    }
+    if (projectMatch && method === 'DELETE') {
+      const [, projectId] = projectMatch;
+      try {
+        // Block deletion of the currently active project
+        if (activeConfigPath) {
+          const activeProjDir = path.join(workspaceManager.projectsDir, projectId);
+          if (activeConfigPath.startsWith(activeProjDir + path.sep) ||
+              activeConfigPath.startsWith(activeProjDir + '/')) {
+            return jsonResp(res, { error: 'Cannot delete the active project. Open a different session first.' }, 400);
+          }
+        }
+        await workspaceManager.deleteProject(projectId);
+        return jsonResp(res, { ok: true });
       } catch (err) {
         return jsonResp(res, { error: err.message }, 404);
       }
@@ -648,8 +696,9 @@ async function handleRequest(req, res) {
         // Broadcast updated config to connected clients
         broadcast({ type: 'config_updated', config });
 
-        // Update session lastActive
+        // Update session lastActive and persist as the last-used session
         await workspaceManager.updateSessionLastActive(projectId, sessionId);
+        await workspaceManager.saveLastActiveSession(projectId, sessionId);
 
         return jsonResp(res, { ok: true, redirectTo: '/session' });
       } catch (err) {
@@ -672,6 +721,7 @@ async function handleRequest(req, res) {
         startChatlogWatcher();
         broadcast({ type: 'config_updated', config });
         await workspaceManager.updateSessionLastActive(projectId, sessionId);
+        await workspaceManager.saveLastActiveSession(projectId, sessionId);
 
         return jsonResp(res, { ok: true, projectId, sessionId, redirectTo: '/session' });
       } catch (err) {
@@ -932,19 +982,27 @@ async function main() {
     await workspaceManager.init();
     console.log(`[agentorum] workspace : ${workspaceManager.workspaceDir}`);
 
-    // --bundle: load bundle file and activate the resulting session
+    // --bundle: load (or resume) a bundle's project and session
     if (CLI_BUNDLE) {
       const bundlePath = path.resolve(CLI_BUNDLE);
       const result     = await workspaceManager.loadBundle(bundlePath);
-      const { projectId, sessionId, configPath, sessionName } = result;
+      const { projectId, sessionId, configPath } = result;
 
       activeConfigPath = configPath;
       await loadConfig(configPath);
       await loadSessionToken();
+      await workspaceManager.saveLastActiveSession(projectId, sessionId);
 
-      console.log(`[agentorum] Bundle loaded: created project "${projectId}", session "${sessionId}"`);
-
-      // After the HTTP server starts it will serve /session directly
+      console.log(`[agentorum] bundle   : project=${projectId} session=${sessionId}`);
+    } else {
+      // No --bundle: try to restore the last active session from workspace.json
+      const last = await workspaceManager.getLastActiveSession();
+      if (last) {
+        activeConfigPath = last.configPath;
+        await loadConfig(last.configPath);
+        await loadSessionToken();
+        console.log(`[agentorum] restored : project=${last.projectId} session=${last.sessionId}`);
+      }
     }
   } else {
     // Single-session mode — load config from file
@@ -990,23 +1048,23 @@ async function main() {
     if (HAS_CONFIG) {
       console.log(`[agentorum] chatlog : ${config.chatlog}`);
       console.log(`[agentorum] config  : ${activeConfigPath}`);
-    } else if (CLI_BUNDLE) {
-      console.log(`[agentorum] mode    : bundle`);
+    } else if (activeConfigPath) {
+      // Workspace mode with an active session (bundle or restored)
       console.log(`[agentorum] chatlog : ${config.chatlog}`);
       console.log(`[agentorum] config  : ${activeConfigPath}`);
     } else {
-      console.log(`[agentorum] mode    : workspace`);
+      console.log(`[agentorum] mode    : workspace (no active session)`);
     }
     if (AUTO_OPEN) {
-      // When a bundle was loaded, open /session directly
-      const openPath = CLI_BUNDLE ? '/session' : '/';
+      // Open /session directly when there is an active session to show
+      const openPath = activeConfigPath ? '/session' : '/';
       const opener = process.platform === 'win32' ? 'start' : process.platform === 'darwin' ? 'open' : 'xdg-open';
       spawn(opener, [`http://127.0.0.1:${PORT}${openPath}`], { shell: true, detached: true, stdio: 'ignore' }).unref();
     }
   });
 
-  // Start chatlog watcher in single-session mode or when a bundle was loaded
-  if (HAS_CONFIG || CLI_BUNDLE) {
+  // Start chatlog watcher whenever an active session is configured
+  if (activeConfigPath) {
     startChatlogWatcher();
   }
 }

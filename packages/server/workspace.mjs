@@ -236,7 +236,7 @@ export class WorkspaceManager {
     });
   }
 
-  async createProject({ name, description = '', defaultScenario = 'vc-debate' }) {
+  async createProject({ name, description = '', defaultScenario = 'vc-debate', bundleId = null }) {
     if (!name || !name.trim()) throw new Error('Project name is required');
 
     let id   = slugify(name);
@@ -256,6 +256,7 @@ export class WorkspaceManager {
       name:            name.trim(),
       description:     description.trim(),
       defaultScenario,
+      bundleId:        bundleId || null,
       created:         now,
       lastActive:      now,
       overrides:       {}
@@ -263,6 +264,34 @@ export class WorkspaceManager {
 
     await writeJson(path.join(projectDir, 'project.json'), project);
     return project;
+  }
+
+  // Find an existing project that was created from a specific bundle.
+  async findProjectByBundleId(bundleId) {
+    const ids = await safeReadDir(this.projectsDir);
+    for (const id of ids) {
+      try {
+        const data = await readJson(path.join(this.projectsDir, id, 'project.json'));
+        if (data.bundleId === bundleId) return { ...data, id };
+      } catch { /* skip malformed */ }
+    }
+    return null;
+  }
+
+  async deleteProject(projectId) {
+    const projectDir = path.join(this.projectsDir, projectId);
+    // Verify it exists (throws if project.json is missing)
+    await readJson(path.join(projectDir, 'project.json'));
+    // Delete the entire project directory tree
+    await fs.rm(projectDir, { recursive: true, force: true });
+    // Clear lastSession if it pointed to this project
+    try {
+      const info = await readJson(this.workspaceFile);
+      if (info.lastSession && info.lastSession.projectId === projectId) {
+        delete info.lastSession;
+        await writeJson(this.workspaceFile, info);
+      }
+    } catch { /* ignore — non-fatal */ }
   }
 
   async getProject(projectId) {
@@ -453,14 +482,18 @@ export class WorkspaceManager {
     const scenarioFilePath = path.join(this.scenariosDir, scenarioFileName);
     await writeJson(scenarioFilePath, bundle.scenario);
 
-    // Create the project
+    // Reuse an existing project for this bundle if one exists, otherwise create a new one.
     const projectName        = (bundle.project.name || bundle.name || bundle.id).trim();
     const projectDescription = (bundle.project.description || bundle.description || '').trim();
-    const project = await this.createProject({
-      name:            projectName,
-      description:     projectDescription,
-      defaultScenario: bundle.scenario.id
-    });
+    let project = await this.findProjectByBundleId(bundle.id);
+    if (!project) {
+      project = await this.createProject({
+        name:            projectName,
+        description:     projectDescription,
+        defaultScenario: bundle.scenario.id,
+        bundleId:        bundle.id
+      });
+    }
 
     // Derive session name: namePrefix + today's date
     const today       = new Date().toISOString().slice(0, 10); // YYYY-MM-DD
@@ -469,7 +502,25 @@ export class WorkspaceManager {
       : 'Session';
     const sessionName = `${namePrefix} ${today}`;
 
-    // Create the session
+    // Check for an existing session with the same name (i.e. today's session for this project).
+    // If found, resume it instead of creating a duplicate.
+    const sessionsDir = path.join(this.projectsDir, project.id, 'sessions');
+    const existingSessionIds = await safeReadDir(sessionsDir);
+    for (const sid of existingSessionIds) {
+      try {
+        const sess = await readJson(path.join(sessionsDir, sid, 'session.json'));
+        if (sess.name === sessionName) {
+          // Resume existing session — return its paths without modification.
+          const sessionDir  = path.join(sessionsDir, sid);
+          const configPath  = path.join(sessionDir, 'agentorum.config.json');
+          const chatlogPath = path.join(sessionDir, 'chatlog.md');
+          console.log(`[agentorum] resuming existing session "${sess.name}" (${sid})`);
+          return { projectId: project.id, sessionId: sid, configPath, chatlogPath, sessionName };
+        }
+      } catch { /* skip malformed */ }
+    }
+
+    // No matching session found — create a fresh one for today.
     const { sessionId, configPath, chatlogPath } = await this.createSession(project.id, {
       name:      sessionName,
       scenario:  bundle.scenario.id,
@@ -530,6 +581,36 @@ export class WorkspaceManager {
     }
 
     return { projectId: project.id, sessionId, configPath, chatlogPath, sessionName };
+  }
+
+  // -------------------------------------------------------------------------
+  // Last-active session persistence
+  // Stored in workspace.json so plain `node server.mjs` restores where the
+  // user left off, without needing to re-pass --bundle or --config.
+  // -------------------------------------------------------------------------
+  async getLastActiveSession() {
+    try {
+      const info = await readJson(this.workspaceFile);
+      const last = info.lastSession;
+      if (!last || !last.projectId || !last.sessionId) return null;
+      // Verify the session directory still exists before returning it.
+      const configPath = path.join(
+        this.projectsDir, last.projectId, 'sessions', last.sessionId, 'agentorum.config.json'
+      );
+      if (!existsSync(configPath)) return null;
+      return { projectId: last.projectId, sessionId: last.sessionId, configPath };
+    } catch {
+      return null;
+    }
+  }
+
+  async saveLastActiveSession(projectId, sessionId) {
+    try {
+      let info = {};
+      try { info = await readJson(this.workspaceFile); } catch { /* first write */ }
+      info.lastSession = { projectId, sessionId };
+      await writeJson(this.workspaceFile, info);
+    } catch { /* non-fatal — workspace.json write failure should not crash server */ }
   }
 
   // -------------------------------------------------------------------------

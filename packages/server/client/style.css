@@ -109,25 +109,39 @@ label { display: flex; align-items: center; gap: 6px; cursor: pointer; }
 #btn-back-home {
   font-size: 12px;
   font-weight: 600;
-  color: var(--text-muted);
+  color: var(--text);
   text-decoration: none;
-  padding: 3px 9px;
+  padding: 4px 10px;
   border-radius: var(--radius);
-  border: 1px solid var(--border);
-  background: var(--bg-card);
+  border: 1px solid var(--accent);
+  background: color-mix(in srgb, var(--accent) 10%, var(--bg-card));
   white-space: nowrap;
   display: inline-flex;
   align-items: center;
   gap: 4px;
+  transition: background 0.15s, border-color 0.15s;
 }
-#btn-back-home:hover { background: var(--badge-bg); color: var(--text); }
+#btn-back-home:hover {
+  background: color-mix(in srgb, var(--accent) 20%, var(--bg-card));
+  border-color: var(--accent);
+  color: var(--text);
+}
+
+#topbar-divider {
+  color: var(--border);
+  font-size: 16px;
+  line-height: 1;
+  user-select: none;
+}
 
 #logo {
   font-weight: 700;
   font-size: 16px;
   color: var(--accent);
   white-space: nowrap;
+  text-decoration: none;
 }
+#logo:hover { opacity: 0.8; }
 
 #participant-pills { display: flex; gap: 6px; flex-wrap: nowrap; overflow: hidden; }
 

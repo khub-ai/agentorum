@@ -146,9 +146,23 @@ async function invokeAgent(chatlogContent) {
   console.log(`[${PARTICIPANT_ID}] invoking ${cmd}…`);
 
   return new Promise((resolve, reject) => {
-    const proc = spawn(cmd, cmdArgs, { stdio: ['pipe', 'pipe', 'pipe'] });
-    proc.stdin.write(prompt);
-    proc.stdin.end();
+    // shell:true is required on Windows so that .cmd wrappers (claude.cmd,
+    // codex.cmd) are resolved by cmd.exe.  Without it, spawn throws ENOENT.
+    const proc = spawn(cmd, cmdArgs, { stdio: ['pipe', 'pipe', 'pipe'], shell: true });
+
+    // Catch spawn-level errors (e.g. shell not found) without crashing the process.
+    proc.on('error', (err) => {
+      console.error(`[${PARTICIPANT_ID}] failed to spawn ${cmd}: ${err.message}`);
+      reject(err);
+    });
+
+    // Guard stdin writes: if the process failed to start, stdin may already be
+    // closed and writing to it would emit an unhandled error event.
+    proc.stdin.on('error', () => {});
+    try {
+      proc.stdin.write(prompt);
+      proc.stdin.end();
+    } catch { /* spawn already failed; error handler above will reject */ }
 
     let stdout = '';
     let stderr = '';
@@ -162,7 +176,6 @@ async function invokeAgent(chatlogContent) {
         resolve(stdout.trim());
       }
     });
-    proc.on('error', reject);
   });
 }
 

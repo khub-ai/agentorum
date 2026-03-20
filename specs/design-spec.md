@@ -1256,3 +1256,94 @@ A dedicated `MODERATOR` participant can be added to any session to submit rating
 - **Session-level leaderboard** — a ranked view of all participants by cumulative score at the end of a session
 - **Moderator-generated summary** — auto-generated end-of-session summary calling out the highest-rated contributions and flagging flagged errors
 - **Cross-session reputation** — aggregate scores across all sessions in a project, to track which participants improve or degrade over time with repeated use
+
+---
+
+## 19. Licensing and Contribution Policy
+
+### 19.1 Project License
+
+Agentorum is released under the **PolyForm Noncommercial License 1.0.0** (see `LICENSE` in the repository root). The full text governs all use; the summary below is for quick reference only.
+
+**Permitted without restriction:**
+- Personal use
+- Internal business use (any company, any size) where the software is not offered to external customers or users
+- Academic and research use
+- Government use
+- Evaluation and testing, including commercial evaluation
+
+**Requires a separate commercial license:**
+- Offering Agentorum as a hosted service to paying customers (SaaS)
+- Bundling Agentorum in a product sold to third parties
+- Any use where external parties are charged for access to Agentorum-powered functionality
+
+**Key property:** PolyForm Noncommercial is *source-available*, not OSI-certified open-source. This distinction matters for compliance declarations in corporate environments. The source code is fully readable and modifiable; the restriction is on commercial *distribution and monetisation*, not on reading or running the code.
+
+**Relicensing:** The project owner (`khub-ai`) explicitly retains the right to issue additional licenses (commercial, dual-license, etc.) in the future. All contributors grant this right via the CLA (§19.3).
+
+**`package.json`** carries `"license": "PolyForm-Noncommercial-1.0.0"` as the SPDX identifier.
+
+### 19.2 Why PolyForm Noncommercial
+
+| Goal | How PolyForm NC satisfies it |
+|---|---|
+| Free for individuals and internal teams | Explicitly permitted; no seat limits, no registration |
+| Prevents unauthorised commercial use | Commercial use clause requires a separate license |
+| Allows future dual-licensing or commercialisation | Owner retains relicensing rights |
+| Avoids GPL copyleft complications | PolyForm has no copyleft; modifications are private unless published |
+| Recognisable, standardised text | PolyForm is a small set of professionally drafted licenses; courts and lawyers can read it |
+
+### 19.3 Contributor License Agreement (CLA)
+
+All external contributors must sign the **Individual CLA** (`CLA.md`) before their pull request can be merged. The CLA is a prerequisite, not a formality — it preserves the project's ability to issue commercial licenses in the future.
+
+**What the CLA grants:**
+- A broad copyright license covering the right to reproduce, modify, sublicense, and relicense the contribution under any terms the project owner chooses (including commercial licenses)
+- A perpetual, irrevocable patent license covering any patents the contributor holds that are necessarily infringed by the contribution
+- The contributor retains full ownership of their contribution
+
+**What the CLA does not do:**
+- It does not transfer ownership of the contribution to the project
+- It does not prevent the contributor from using their own contribution in other projects
+
+**How to sign:**
+Post the exact phrase below as a comment on the pull request:
+
+```
+I have read the CLA Document and I hereby sign the CLA
+```
+
+The CLA Assistant bot (`contributor-assistant/github-action`) detects the comment, records the signature (GitHub username, timestamp, commit SHA, CLA version) in `signatures/cla-signatures.json` on the `cla-signatures` branch, and marks the PR check green.
+
+**Re-signing:** Signatures are perpetual. A contributor who has already signed does not need to sign again for future PRs, unless the CLA document itself is updated to a new version. When the CLA version changes, all existing contributors who open a new PR will be prompted once to re-sign.
+
+**Allowlist:** `bot*` accounts and `khub-ai` (the repository owner) are exempt and never prompted.
+
+### 19.4 CLA Assistant Setup
+
+The bot is configured in `.github/workflows/cla.yml`:
+
+```yaml
+- uses: contributor-assistant/github-action@v2.6.1
+  env:
+    GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    PERSONAL_ACCESS_TOKEN: ${{ secrets.CLA_PAT }}
+  with:
+    path-to-signatures: signatures/cla-signatures.json
+    path-to-document: https://github.com/khub-ai/agentorum/blob/main/CLA.md
+    branch: cla-signatures
+    allowlist: bot*,khub-ai
+```
+
+**Required secret — `CLA_PAT`:**
+- Type: GitHub classic Personal Access Token (not fine-grained)
+- Scope: `repo` (full repository access)
+- Expiration: **No expiration** (fine-grained PATs require mandatory expiration; classic PATs support perpetual tokens)
+- Owner: The `khub-ai` account
+- Set in: repository Settings → Secrets and variables → Actions → New repository secret
+
+The `CLA_PAT` is needed because the bot writes to the `cla-signatures` branch (a cross-branch write), which `GITHUB_TOKEN` cannot do without elevated permissions.
+
+### 19.5 Corporate CLA (Future)
+
+The current CLA covers individual contributors only. When the project attracts contributions from organisations (corporations, universities), a **Corporate CLA (CCLA)** should be added alongside the individual CLA. The CCLA designates an authorised signatory at the organisation, and the organisation lists employees covered by the agreement. The CLA Assistant bot supports CCLA workflows; the setup is deferred until a corporate contribution materialises.

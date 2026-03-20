@@ -227,10 +227,14 @@ agentorum/                        (repo)
 git clone https://github.com/khub-ai/agentorum.git
 cd agentorum
 npm install
-node packages/server/server.mjs --open
+npm start
 ```
 
-This opens the project browser at `http://localhost:3737`. Create a project, pick a scenario, and start a session.
+This opens the project browser at `http://localhost:3737`.
+
+**First time:** create a project from the browser UI, pick a scenario, and start a session.
+
+**Every subsequent restart:** just `npm start` again — Agentorum automatically resumes where you left off. No flags needed.
 
 > **Windows users — if `npm start` gives a security error in PowerShell:**
 >
@@ -247,7 +251,16 @@ This opens the project browser at `http://localhost:3737`. Create a project, pic
 >
 > This is a Windows security policy quirk, not an Agentorum issue. The Electron desktop installer (coming soon) will not have this problem.
 
-### Try a built-in example directly
+### Setting up a specific use case
+
+Use case bundles set up a project and session in one step. Run the setup command once; after that, plain `npm start` resumes that session automatically.
+
+```bash
+# Software development review (Claude Code + OpenAI Codex)
+npm run setup:software-dev
+```
+
+### Try a built-in example directly (legacy single-session mode)
 
 ```bash
 # VC investment debate

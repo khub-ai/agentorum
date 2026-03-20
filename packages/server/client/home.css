@@ -133,7 +133,9 @@ textarea { resize: vertical; }
   font-size: 17px;
   color: var(--accent);
   letter-spacing: -0.3px;
+  text-decoration: none;
 }
+#home-logo:hover { opacity: 0.8; }
 
 #workspace-name {
   font-size: 13px;
@@ -696,4 +698,65 @@ textarea { resize: vertical; }
 @keyframes toast-slide-in {
   from { transform: translateY(24px); opacity: 0; }
   to   { transform: translateY(0);    opacity: 1; }
+}
+
+/* ---------------------------------------------------------------------------
+   Active project / session indicators
+   ------------------------------------------------------------------------- */
+
+/* "● Active" pill shown on the currently loaded project card and session row */
+.active-pill {
+  display: inline-flex;
+  align-items: center;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+  color: #16a34a;
+  background: rgba(22, 163, 74, 0.12);
+  border: 1px solid rgba(22, 163, 74, 0.3);
+  border-radius: 999px;
+  padding: 1px 7px;
+  white-space: nowrap;
+}
+
+/* Active project card gets a green left border accent */
+.project-card-active {
+  border-color: rgba(22, 163, 74, 0.5);
+  box-shadow: inset 3px 0 0 #16a34a;
+}
+.project-card-active:hover {
+  border-color: #16a34a;
+}
+
+/* Active session row gets a subtle green tint */
+.session-row-active {
+  border-color: rgba(22, 163, 74, 0.4);
+  background: color-mix(in srgb, #16a34a 6%, var(--bg-card));
+}
+
+/* ---------------------------------------------------------------------------
+   Delete button on project cards
+   ------------------------------------------------------------------------- */
+.btn-delete-project {
+  margin-left: auto;  /* push to right edge of header */
+  background: transparent;
+  border: none;
+  color: var(--text-muted);
+  font-size: 14px;
+  padding: 2px 5px;
+  border-radius: 4px;
+  opacity: 0;                /* hidden until card is hovered */
+  transition: opacity 0.15s, color 0.15s, background 0.15s;
+  flex-shrink: 0;
+}
+.project-card:hover .btn-delete-project { opacity: 1; }
+.btn-delete-project:hover {
+  color: #dc2626;
+  background: rgba(220, 38, 38, 0.1);
+}
+
+/* icon-only button base (used by delete button) */
+.btn-icon {
+  line-height: 1;
+  cursor: pointer;
 }

@@ -6,9 +6,11 @@
 // ---------------------------------------------------------------------------
 let scenarios        = [];
 let projects         = [];
-let activeProject    = null;    // { id, name, ... }
+let activeProject    = null;    // { id, name, ... } — project whose sessions panel is open
 let sessions         = [];
 let selectedScenario = null;    // id of selected scenario in new-project modal
+let currentProjectId = null;    // projectId of the server's currently loaded session
+let currentSessionId = null;    // sessionId of the server's currently loaded session
 
 // ---------------------------------------------------------------------------
 // API helper
@@ -105,16 +107,20 @@ function renderProjects() {
 
   for (const project of projects) {
     const card = document.createElement('div');
-    card.className   = 'project-card';
+    const isActive = project.id === currentProjectId;
+    card.className   = 'project-card' + (isActive ? ' project-card-active' : '');
     card.dataset.id  = project.id;
 
     const lastActive = formatRelative(project.lastActive);
     const sessionStr = project.sessionCount === 1 ? '1 session' : `${project.sessionCount} sessions`;
     const badge      = scenarioBadgeHtml(project.defaultScenario);
+    const activePill = isActive ? `<span class="active-pill">● Active</span>` : '';
 
     card.innerHTML = `
       <div class="project-card-header">
         ${badge}
+        ${activePill}
+        <button class="btn-delete-project btn-ghost btn-icon" title="Delete project" data-project-id="${project.id}">🗑</button>
       </div>
       <div class="project-card-body">
         <h3 class="project-name">${escHtml(project.name)}</h3>
@@ -127,9 +133,10 @@ function renderProjects() {
       </div>
     `;
 
-    // Click card body to open sessions panel (not the "+ Session" button)
+    // Click card body → open sessions panel (or jump straight in if only one session)
     card.addEventListener('click', (e) => {
       if (e.target.closest('.btn-new-session-card')) return;
+      if (e.target.closest('.btn-delete-project')) return;
       openSessionsPanel(project);
     });
 
@@ -137,6 +144,12 @@ function renderProjects() {
     card.querySelector('.btn-new-session-card').addEventListener('click', (e) => {
       e.stopPropagation();
       openNewSessionModal(project);
+    });
+
+    // Delete button on card
+    card.querySelector('.btn-delete-project').addEventListener('click', (e) => {
+      e.stopPropagation();
+      confirmDeleteProject(project);
     });
 
     grid.appendChild(card);
@@ -166,6 +179,11 @@ async function openSessionsPanel(project) {
   panel.classList.add('panel-visible');
 
   await loadSessions(project.id);
+
+  // If there is only one session, open it directly — no extra click needed.
+  if (sessions.length === 1) {
+    openSession(project.id, sessions[0].id);
+  }
 }
 
 function closeSessionsPanel() {
@@ -197,25 +215,29 @@ function renderSessions() {
 
   for (const session of sessions) {
     const row = document.createElement('div');
-    row.className = 'session-row';
+    const isActiveSession = activeProject.id === currentProjectId && session.id === currentSessionId;
+    row.className = 'session-row' + (isActiveSession ? ' session-row-active' : '');
     row.dataset.id = session.id;
 
     const lastActive  = formatRelative(session.lastActive);
     const entryStr    = session.entryCount === 1 ? '1 entry' : `${session.entryCount || 0} entries`;
     const badge       = scenarioBadgeHtml(session.scenario);
+    const activePill  = isActiveSession ? `<span class="active-pill">● Active</span>` : '';
+    const btnLabel    = isActiveSession ? 'Resume' : 'Open';
 
     row.innerHTML = `
       <div class="session-row-main">
         <div class="session-row-header">
           <span class="session-name">${escHtml(session.name)}</span>
           ${badge}
+          ${activePill}
         </div>
         <div class="session-row-meta">
           <span>${entryStr}</span>
           ${lastActive ? `<span>${lastActive}</span>` : ''}
         </div>
       </div>
-      <button class="btn-open-session btn-primary btn-sm" data-project-id="${activeProject.id}" data-session-id="${session.id}">Open</button>
+      <button class="btn-open-session btn-primary btn-sm" data-project-id="${activeProject.id}" data-session-id="${session.id}">${btnLabel}</button>
     `;
 
     row.querySelector('.btn-open-session').addEventListener('click', () => {
@@ -504,6 +526,25 @@ document.addEventListener('drop', (e) => {
 });
 
 // ---------------------------------------------------------------------------
+// Delete project
+// ---------------------------------------------------------------------------
+async function confirmDeleteProject(project) {
+  const sessionWord = project.sessionCount === 1 ? '1 session' : `${project.sessionCount} sessions`;
+  if (!confirm(`Delete "${project.name}" and its ${sessionWord}?\n\nThis permanently removes the project folder and all chatlog data. This cannot be undone.`)) return;
+  try {
+    await api(`/api/projects/${project.id}`, 'DELETE');
+    projects = projects.filter(p => p.id !== project.id);
+    if (project.id === currentProjectId) {
+      currentProjectId = null;
+      currentSessionId = null;
+    }
+    if (activeProject && activeProject.id === project.id) closeSessionsPanel();
+    renderProjects();
+    showSuccess(`"${project.name}" deleted.`);
+  } catch { /* error shown by api() */ }
+}
+
+// ---------------------------------------------------------------------------
 // Initialisation
 // ---------------------------------------------------------------------------
 async function init() {
@@ -518,6 +559,12 @@ async function init() {
 
     scenarios = scenariosData || [];
     projects  = projectsData  || [];
+
+    // Read the server's currently loaded session so we can highlight it
+    if (workspaceInfo && workspaceInfo.lastSession) {
+      currentProjectId = workspaceInfo.lastSession.projectId || null;
+      currentSessionId = workspaceInfo.lastSession.sessionId || null;
+    }
 
     // Set workspace name in topbar
     if (workspaceInfo && workspaceInfo.name) {
@@ -543,3 +590,9 @@ async function init() {
 }
 
 init();
+
+// When the browser restores this page from the back/forward cache (bfcache),
+// the loading overlay may still be visible from the last navigation.  Reset it.
+window.addEventListener('pageshow', (e) => {
+  if (e.persisted) setLoading(false);
+});
