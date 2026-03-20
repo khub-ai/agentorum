@@ -84,6 +84,8 @@ const DEFAULT_CONFIG = {
 let config           = { ...DEFAULT_CONFIG };
 let activeConfigPath = CONFIG_PATH;  // tracks the current config file path (mutable in workspace mode)
 let activeSessionToken = null;       // session token for interactive agent validation
+let activeProjectId  = null;         // workspace project ID of the active session
+let activeSessionId  = null;         // workspace session ID of the active session
 
 async function loadConfig(configFilePath) {
   const target = configFilePath || activeConfigPath;
@@ -511,6 +513,7 @@ function broadcast(msg) {
 // ---------------------------------------------------------------------------
 const MIME = {
   '.html': 'text/html', '.js': 'application/javascript', '.css': 'text/css',
+  '.json': 'application/json', '.webmanifest': 'application/manifest+json',
   '.svg': 'image/svg+xml', '.ico': 'image/x-icon',
   '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg',
   '.gif': 'image/gif', '.webp': 'image/webp',
@@ -588,6 +591,28 @@ async function handleRequest(req, res) {
         return jsonResp(res, await workspaceManager.getWorkspaceInfo());
       } catch (err) {
         return jsonResp(res, { error: err.message }, 500);
+      }
+    }
+
+    // PATCH /api/workspace  (rename workspace)
+    if (pathname === '/api/workspace' && method === 'PATCH') {
+      try {
+        const { name } = JSON.parse(await readBody(req));
+        return jsonResp(res, await workspaceManager.renameWorkspace(name));
+      } catch (err) {
+        return jsonResp(res, { error: err.message }, 400);
+      }
+    }
+
+    // GET /api/projects/:projectId/search?q=...
+    const searchMatch = pathname.match(/^\/api\/projects\/([^/]+)\/search$/);
+    if (searchMatch && method === 'GET') {
+      const [, projectId] = searchMatch;
+      const q = new URL(`http://x${req.url}`).searchParams.get('q') || '';
+      try {
+        return jsonResp(res, await workspaceManager.searchSessions(projectId, q));
+      } catch (err) {
+        return jsonResp(res, { error: err.message }, 400);
       }
     }
 
@@ -735,6 +760,8 @@ async function handleRequest(req, res) {
 
         // Reload config from this session's config file
         activeConfigPath = configPath;
+        activeProjectId  = projectId;
+        activeSessionId  = sessionId;
         await loadConfig(configPath);
         await loadSessionToken();
 
@@ -867,6 +894,19 @@ async function handleRequest(req, res) {
       }
     }
     await fsp.appendFile(config.chatlog, formatEntry(author, body, meta || {}), 'utf8');
+
+    // Write trigger file so interactive agents watching the session dir can respond
+    if (activeConfigPath) {
+      const triggerPath = path.join(path.dirname(activeConfigPath), 'trigger.json');
+      fsp.writeFile(triggerPath, JSON.stringify({
+        timestamp: new Date().toISOString(),
+        author, body: body.slice(0, 500),
+        sessionDir: path.dirname(activeConfigPath),
+        projectId: activeProjectId,
+        sessionId: activeSessionId
+      }), 'utf8').catch(() => {});
+    }
+
     return jsonResp(res, { ok: true });
   }
 
@@ -1115,6 +1155,8 @@ async function main() {
       const { projectId, sessionId, configPath } = result;
 
       activeConfigPath = configPath;
+      activeProjectId  = projectId;
+      activeSessionId  = sessionId;
       await loadConfig(configPath);
       await loadSessionToken();
       await workspaceManager.saveLastActiveSession(projectId, sessionId);
@@ -1125,6 +1167,8 @@ async function main() {
       const last = await workspaceManager.getLastActiveSession();
       if (last) {
         activeConfigPath = last.configPath;
+        activeProjectId  = last.projectId;
+        activeSessionId  = last.sessionId;
         await loadConfig(last.configPath);
         await loadSessionToken();
         console.log(`[agentorum] restored : project=${last.projectId} session=${last.sessionId}`);
@@ -1149,7 +1193,7 @@ async function main() {
     if (config.chatlog && fs.existsSync(config.chatlog)) {
       const raw     = await fsp.readFile(config.chatlog, 'utf8').catch(() => '');
       const entries = parseEntries(raw);
-      ws.send(JSON.stringify({ type: 'init', entries: entries.slice(-500), total: entries.length, config, scores: computeScores(entries) }));
+      ws.send(JSON.stringify({ type: 'init', entries: entries.slice(-500), total: entries.length, config, scores: computeScores(entries), projectId: activeProjectId, sessionId: activeSessionId }));
       for (const p of config.participants.filter(p => p.type === 'agent')) {
         ws.send(JSON.stringify({ type: 'agent_status', agent: getAgentStatus(p.id) }));
       }

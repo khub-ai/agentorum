@@ -48,6 +48,7 @@ function connect() {
         renderInitAgentsPanel(true);   // autoShow=true — modal fires on session load
         renderComposeAuthorOptions();
         renderRules();
+        if (msg.projectId && msg.sessionId) populateSessionSwitcher(msg.projectId, msg.sessionId);
         updateLoadOlderBtn();
         break;
       case 'entries_added':
@@ -1060,6 +1061,33 @@ function patchMarkedForVideo() {
     return _paragraph(token);
   };
   marked.use({ renderer });
+}
+
+// ---------------------------------------------------------------------------
+// Session switcher
+// ---------------------------------------------------------------------------
+async function populateSessionSwitcher(projectId, activeSessionId) {
+  const sel = document.getElementById('session-switcher');
+  if (!sel) return;
+  try {
+    const sessions = await api(`/api/projects/${projectId}/sessions`);
+    if (!sessions || sessions.length < 2) return; // no need for switcher with only 1 session
+    sel.innerHTML = '';
+    sessions.forEach(s => {
+      const opt = document.createElement('option');
+      opt.value = s.id;
+      opt.textContent = s.name || s.id;
+      if (s.id === activeSessionId) opt.selected = true;
+      sel.appendChild(opt);
+    });
+    sel.style.display = '';
+    sel.addEventListener('change', async () => {
+      const sid = sel.value;
+      if (sid === activeSessionId) return;
+      await fetch(`/api/sessions/${projectId}/${sid}/open`, { method: 'POST' });
+      window.location.reload();
+    });
+  } catch { /* non-fatal */ }
 }
 
 // Boot — patch marked once it is loaded (it loads via CDN after this module)

@@ -4,6 +4,8 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Agentorum — Projects</title>
+  <link rel="manifest" href="/manifest.json">
+  <meta name="theme-color" content="#0f172a">
   <link rel="stylesheet" href="home.css">
 </head>
 <body>
@@ -12,7 +14,7 @@
 <header id="home-topbar">
   <div id="home-topbar-left">
     <a id="home-logo" href="/">⬡ Agentorum</a>
-    <span id="workspace-name"></span>
+    <span id="workspace-name"></span><button id="btn-rename-workspace" class="btn-rename" title="Rename workspace">✏</button>
   </div>
   <div id="home-topbar-right">
     <button id="btn-manage-scenarios" class="btn-ghost">Scenarios</button>
@@ -54,6 +56,10 @@
       </div>
       <button id="btn-new-session" class="btn-primary btn-sm">+ New Session</button>
     </div>
+    <div id="sessions-search-row">
+      <input id="sessions-search" type="search" placeholder="Search across sessions…" autocomplete="off">
+    </div>
+    <div id="sessions-search-results" style="display:none"></div>
     <div id="sessions-list">
       <!-- Populated by home.js -->
     </div>
@@ -213,5 +219,6 @@
 </div>
 
 <script type="module" src="home.js"></script>
+<script>if ('serviceWorker' in navigator) navigator.serviceWorker.register('/sw.js');</script>
 </body>
 </html>

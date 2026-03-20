@@ -729,4 +729,63 @@ export class WorkspaceManager {
       scenarioCount:  scenarios.length
     };
   }
+
+  async renameWorkspace(newName) {
+    if (!newName || !newName.trim()) throw new Error('Name is required');
+    let info = {};
+    try { info = await readJson(this.workspaceFile); } catch { /* ok */ }
+    info.name = newName.trim();
+    await writeJson(this.workspaceFile, info);
+    return info;
+  }
+
+  // Search entries across all sessions in a project.
+  // Returns [{sessionId, sessionName, entryId, author, timestamp, snippet}]
+  async searchSessions(projectId, query) {
+    if (!query || !query.trim()) return [];
+    const q = query.trim().toLowerCase();
+    const sessionsDir = path.join(this.projectsDir, projectId, 'sessions');
+    const sessionIds  = await safeReadDir(sessionsDir);
+    const results     = [];
+
+    for (const sid of sessionIds) {
+      const sessionDir  = path.join(sessionsDir, sid);
+      const configPath  = path.join(sessionDir, 'agentorum.config.json');
+      let sessionName   = sid;
+      let chatlogPath   = null;
+      try {
+        const cfg  = await readJson(configPath);
+        chatlogPath = cfg.chatlog;
+      } catch { continue; }
+      try {
+        const sess  = await readJson(path.join(sessionDir, 'session.json'));
+        sessionName = sess.name || sid;
+      } catch { /* use sid */ }
+
+      if (!chatlogPath || !existsSync(chatlogPath)) continue;
+      try {
+        const raw = await fs.readFile(chatlogPath, 'utf8');
+        // Simple line-by-line scan of the NDJSON chatlog
+        for (const line of raw.split('\n')) {
+          if (!line.trim()) continue;
+          try {
+            const entry = JSON.parse(line);
+            if ((entry.body || '').toLowerCase().includes(q) ||
+                (entry.author || '').toLowerCase().includes(q)) {
+              results.push({
+                sessionId:   sid,
+                sessionName,
+                entryId:     entry.id,
+                author:      entry.author,
+                timestamp:   entry.timestamp,
+                snippet:     entry.body.slice(0, 200)
+              });
+            }
+          } catch { /* malformed line */ }
+        }
+      } catch { /* can't read chatlog */ }
+    }
+
+    return results;
+  }
 }

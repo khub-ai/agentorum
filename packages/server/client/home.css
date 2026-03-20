@@ -887,3 +887,56 @@ textarea { resize: vertical; }
 
 /* Section divider inside modal body */
 .sc-section-divider { height: 1px; background: var(--border); margin: 14px 0; }
+
+/* ---------------------------------------------------------------------------
+   Workspace rename button
+   ------------------------------------------------------------------------- */
+#btn-rename-workspace {
+  opacity: 0;
+  font-size: 12px;
+  padding: 2px 6px;
+  transition: opacity 0.15s;
+}
+#home-topbar-left:hover #btn-rename-workspace { opacity: 1; }
+
+/* ---------------------------------------------------------------------------
+   Sessions panel — cross-session search
+   ------------------------------------------------------------------------- */
+#sessions-search-row {
+  padding: 8px 16px 4px;
+}
+#sessions-search {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 6px 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--bg);
+  color: var(--text);
+  font-size: 13px;
+}
+#sessions-search-results {
+  padding: 0 10px 8px;
+  overflow-y: auto;
+  max-height: 340px;
+}
+.search-result-card {
+  background: var(--bg-sidebar);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 8px 10px;
+  margin-bottom: 6px;
+  cursor: default;
+}
+.search-result-meta {
+  display: flex;
+  gap: 8px;
+  align-items: baseline;
+  margin-bottom: 4px;
+  font-size: 11px;
+}
+.search-result-session { font-weight: 600; color: var(--accent); }
+.search-result-author  { color: var(--text-muted); }
+.search-result-time    { margin-left: auto; color: var(--text-muted); }
+.search-result-snippet { font-size: 12px; color: var(--text); white-space: pre-wrap; word-break: break-word; }
+.search-empty          { font-size: 13px; color: var(--text-muted); padding: 8px 6px; }

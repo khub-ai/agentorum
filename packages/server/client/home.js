@@ -284,6 +284,10 @@ function closeSessionsPanel() {
   const panel = document.getElementById('sessions-panel');
   panel.classList.remove('panel-visible');
   panel.classList.add('panel-hidden');
+  // Clear cross-session search
+  document.getElementById('sessions-search').value = '';
+  document.getElementById('sessions-search-results').style.display = 'none';
+  document.getElementById('sessions-list').style.display = '';
 }
 
 async function loadSessions(projectId) {
@@ -925,6 +929,55 @@ async function init() {
 }
 
 init();
+
+// ---------------------------------------------------------------------------
+// Workspace rename
+// ---------------------------------------------------------------------------
+document.getElementById('btn-rename-workspace').addEventListener('click', () => {
+  const current = document.getElementById('workspace-name').textContent.trim();
+  startRename({
+    currentName: current,
+    onSave: async (newName) => {
+      await api('/api/workspace', 'PATCH', { name: newName });
+      document.getElementById('workspace-name').textContent = newName;
+    }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Cross-session search (within the open sessions panel)
+// ---------------------------------------------------------------------------
+let _searchDebounce = null;
+document.getElementById('sessions-search').addEventListener('input', (e) => {
+  const q = e.target.value.trim();
+  clearTimeout(_searchDebounce);
+  if (!q) {
+    document.getElementById('sessions-search-results').style.display = 'none';
+    document.getElementById('sessions-list').style.display = '';
+    return;
+  }
+  _searchDebounce = setTimeout(async () => {
+    if (!activeProject) return;
+    const results = await api(`/api/projects/${activeProject.id}/search?q=${encodeURIComponent(q)}`);
+    const container = document.getElementById('sessions-search-results');
+    container.style.display = '';
+    document.getElementById('sessions-list').style.display = 'none';
+    if (!results || results.length === 0) {
+      container.innerHTML = '<p class="search-empty">No matches found.</p>';
+      return;
+    }
+    container.innerHTML = results.map(r => `
+      <div class="search-result-card">
+        <div class="search-result-meta">
+          <span class="search-result-session">${escHtml(r.sessionName)}</span>
+          <span class="search-result-author">${escHtml(r.author)}</span>
+          <span class="search-result-time">${formatRelative(r.timestamp)}</span>
+        </div>
+        <div class="search-result-snippet">${escHtml(r.snippet)}</div>
+      </div>
+    `).join('');
+  }, 300);
+});
 
 // When the browser restores this page from the back/forward cache (bfcache),
 // the loading overlay may still be visible from the last navigation.  Reset it.
