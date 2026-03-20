@@ -1039,3 +1039,10 @@ function patchMarkedForVideo() {
 // Boot — patch marked once it is loaded (it loads via CDN after this module)
 window.addEventListener('load', patchMarkedForVideo);
 connect();
+
+// When the browser restores this page from bfcache (Back button), the
+// WebSocket connection is stale and the page state is frozen mid-session.
+// Force a reload so the WS reconnects and the UI reflects current state.
+window.addEventListener('pageshow', (e) => {
+  if (e.persisted) window.location.reload();
+});

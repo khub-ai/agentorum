@@ -254,9 +254,17 @@ textarea { resize: vertical; }
   color: var(--border);
 }
 
-.btn-new-session-card {
+.btn-new-session-card,
+.btn-resume-card {
   margin-left: auto;
   flex-shrink: 0;
+  text-decoration: none;
+}
+
+/* Topbar Resume button */
+#btn-resume-session {
+  text-decoration: none;
+  white-space: nowrap;
 }
 
 /* ---------------------------------------------------------------------------

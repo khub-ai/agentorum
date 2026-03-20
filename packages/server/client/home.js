@@ -88,6 +88,28 @@ function formatRelative(isoStr) {
 }
 
 // ---------------------------------------------------------------------------
+// Topbar: Resume button
+// ---------------------------------------------------------------------------
+function updateResumeButton() {
+  const existing = document.getElementById('btn-resume-session');
+  if (existing) existing.remove();
+
+  if (!currentProjectId) return;
+
+  const project = projects.find(p => p.id === currentProjectId);
+  const label   = project ? project.name : 'Active Session';
+
+  const btn = document.createElement('a');
+  btn.id        = 'btn-resume-session';
+  btn.href      = '/session';
+  btn.className = 'btn-primary btn-sm';
+  btn.textContent = `▶ Resume`;
+  btn.title     = `Resume: ${label}`;
+
+  document.getElementById('home-topbar-right').prepend(btn);
+}
+
+// ---------------------------------------------------------------------------
 // Render projects
 // ---------------------------------------------------------------------------
 function renderProjects() {
@@ -115,6 +137,10 @@ function renderProjects() {
     const sessionStr = project.sessionCount === 1 ? '1 session' : `${project.sessionCount} sessions`;
     const badge      = scenarioBadgeHtml(project.defaultScenario);
     const activePill = isActive ? `<span class="active-pill">● Active</span>` : '';
+    // Active projects show a Resume action in the footer instead of + Session
+    const footerAction = isActive
+      ? `<a class="btn-resume-card btn-primary btn-sm" href="/session">▶ Resume</a>`
+      : `<button class="btn-new-session-card btn-secondary btn-sm" data-project-id="${project.id}">+ Session</button>`;
 
     card.innerHTML = `
       <div class="project-card-header">
@@ -129,15 +155,21 @@ function renderProjects() {
       <div class="project-card-footer">
         <span class="project-meta">${sessionStr}</span>
         ${lastActive ? `<span class="project-meta">${lastActive}</span>` : ''}
-        <button class="btn-new-session-card btn-secondary btn-sm" data-project-id="${project.id}">+ Session</button>
+        ${footerAction}
       </div>
     `;
 
-    // Click card body → open sessions panel (or jump straight in if only one session)
+    // Click active card → go straight to the session (no intermediate panel)
+    // Click other cards → open sessions panel
     card.addEventListener('click', (e) => {
       if (e.target.closest('.btn-new-session-card')) return;
       if (e.target.closest('.btn-delete-project')) return;
-      openSessionsPanel(project);
+      if (e.target.closest('.btn-resume-card')) return; // <a> handles navigation
+      if (isActive) {
+        window.location.href = '/session';
+      } else {
+        openSessionsPanel(project);
+      }
     });
 
     // "+ Session" button on card
@@ -529,17 +561,20 @@ document.addEventListener('drop', (e) => {
 // Delete project
 // ---------------------------------------------------------------------------
 async function confirmDeleteProject(project) {
+  // Block deletion of the currently active project with a clear message
+  if (project.id === currentProjectId) {
+    showError(`"${project.name}" is the active session. Open a different session first, then delete.`);
+    return;
+  }
+
   const sessionWord = project.sessionCount === 1 ? '1 session' : `${project.sessionCount} sessions`;
   if (!confirm(`Delete "${project.name}" and its ${sessionWord}?\n\nThis permanently removes the project folder and all chatlog data. This cannot be undone.`)) return;
   try {
     await api(`/api/projects/${project.id}`, 'DELETE');
     projects = projects.filter(p => p.id !== project.id);
-    if (project.id === currentProjectId) {
-      currentProjectId = null;
-      currentSessionId = null;
-    }
     if (activeProject && activeProject.id === project.id) closeSessionsPanel();
     renderProjects();
+    updateResumeButton();
     showSuccess(`"${project.name}" deleted.`);
   } catch { /* error shown by api() */ }
 }
@@ -584,6 +619,7 @@ async function init() {
     if (scenarios.length > 0) selectedScenario = scenarios[0].id;
 
     renderProjects();
+    updateResumeButton();
   } finally {
     setLoading(false);
   }
