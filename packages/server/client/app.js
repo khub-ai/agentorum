@@ -172,7 +172,11 @@ function timeAgo(timestamp) {
 }
 
 function makeCard(entry) {
-  const collapsed = collapseState[entry.id] !== false; // default: collapsed
+  // Collapse logic:
+  //   - If the user has explicitly toggled this card, respect that choice.
+  //   - Otherwise: entries that arrived this session (newSinceLoad) open by default;
+  //     historical entries loaded on init stay collapsed.
+  const collapsed = collapseState[entry.id] ?? !newSinceLoad.has(entry.id);
   const color     = participantColor(entry.author);
   const name      = participantName(entry.author);
   const role      = participantRole(entry.author);
@@ -244,6 +248,14 @@ function renderAll() {
 function appendEntryCard(entry) {
   const el   = document.getElementById('entries');
   const card = makeCard(entry);
+
+  // One-shot arrival animation: slide up + participant-coloured flash.
+  // Applied as inline style so it wins over all CSS class-based animations
+  // without needing !important.  On completion the inline style is cleared
+  // and the normal age-class animations (age-fresh pulse etc.) take over.
+  card.style.animation = 'entry-arrive 1.4s cubic-bezier(0.16, 1, 0.3, 1) forwards';
+  card.addEventListener('animationend', () => { card.style.animation = ''; }, { once: true });
+
   el.appendChild(card);
   maybeScrollToBottom();
 }

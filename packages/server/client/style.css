@@ -286,6 +286,28 @@ label { display: flex; align-items: center; gap: 6px; cursor: pointer; }
   transition: border-color .3s, box-shadow .3s;
 }
 
+/* New-entry arrival: slide up + participant-colour flash, hands off to age-fresh */
+@keyframes entry-arrive {
+  0%   {
+    transform: translateY(12px);
+    opacity: 0.2;
+    box-shadow: 0 0 0 0px color-mix(in srgb, var(--author-color) 80%, transparent);
+  }
+  18%  {
+    transform: translateY(0);
+    opacity: 1;
+    box-shadow: 0 0 0 6px color-mix(in srgb, var(--author-color) 65%, transparent);
+  }
+  55%  {
+    box-shadow: 0 0 0 4px color-mix(in srgb, var(--author-color) 40%, transparent);
+  }
+  100% {
+    transform: translateY(0);
+    opacity: 1;
+    box-shadow: 0 0 0 2px color-mix(in srgb, var(--author-color) 15%, transparent);
+  }
+}
+
 .entry-card.age-fresh {
   box-shadow: 0 0 0 2px color-mix(in srgb, gold 60%, transparent);
   animation: pulse-fresh 1.5s ease-in-out infinite alternate;
