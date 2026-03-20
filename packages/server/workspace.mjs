@@ -324,6 +324,14 @@ export class WorkspaceManager {
     return data;
   }
 
+  async updateSessionDescription(projectId, sessionId, description) {
+    const sessionFile = path.join(this.projectsDir, projectId, 'sessions', sessionId, 'session.json');
+    const data = await readJson(sessionFile);
+    data.description = (description || '').trim();
+    await writeJson(sessionFile, data);
+    return data;
+  }
+
   async getProject(projectId) {
     const projectDir = path.join(this.projectsDir, projectId);
     const data       = await readJson(path.join(projectDir, 'project.json'));

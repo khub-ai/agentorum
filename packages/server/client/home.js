@@ -322,6 +322,10 @@ function renderSessions() {
     const activePill  = isActiveSession ? `<span class="active-pill">● Active</span>` : '';
     const btnLabel    = isActiveSession ? 'Resume' : 'Open';
 
+    const descHtml = session.description
+      ? `<div class="session-description">${escHtml(session.description)}</div>`
+      : `<div class="session-description session-description-empty">Add notes…</div>`;
+
     row.innerHTML = `
       <div class="session-row-main">
         <div class="session-row-header">
@@ -334,6 +338,7 @@ function renderSessions() {
           <span>${entryStr}</span>
           ${lastActive ? `<span>${lastActive}</span>` : ''}
         </div>
+        ${descHtml}
       </div>
       <button class="btn-open-session btn-primary btn-sm" data-project-id="${activeProject.id}" data-session-id="${session.id}">${btnLabel}</button>
     `;
@@ -354,6 +359,31 @@ function renderSessions() {
           btn.closest('.session-row-header').querySelector('.session-name').textContent = newName;
         }
       });
+    });
+
+    row.querySelector('.session-description').addEventListener('click', (e) => {
+      e.stopPropagation();
+      const descEl = e.currentTarget;
+      const current = session.description || '';
+      const input = document.createElement('textarea');
+      input.className = 'session-description-input';
+      input.value = current;
+      input.placeholder = 'Session notes…';
+      input.rows = 2;
+      descEl.replaceWith(input);
+      input.focus();
+      const save = async () => {
+        const val = input.value.trim();
+        await api(`/api/sessions/${activeProject.id}/${session.id}/description`, 'PATCH', { description: val });
+        session.description = val;
+        const newEl = document.createElement('div');
+        newEl.className = val ? 'session-description' : 'session-description session-description-empty';
+        newEl.textContent = val || 'Add notes…';
+        input.replaceWith(newEl);
+        newEl.addEventListener('click', (e) => { e.stopPropagation(); newEl.dispatchEvent(new MouseEvent('click', { bubbles: false })); });
+      };
+      input.addEventListener('blur', save);
+      input.addEventListener('keydown', (e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); input.blur(); } if (e.key === 'Escape') { input.value = current; input.blur(); } });
     });
 
     list.appendChild(row);
@@ -978,6 +1008,30 @@ document.getElementById('sessions-search').addEventListener('input', (e) => {
     `).join('');
   }, 300);
 });
+
+// ---------------------------------------------------------------------------
+// Dark / light mode toggle
+// ---------------------------------------------------------------------------
+(function initTheme() {
+  const saved = localStorage.getItem('agentorum_theme');
+  if (saved) document.documentElement.dataset.theme = saved;
+  const btn = document.getElementById('btn-theme-home');
+  function updateThemeBtn() {
+    const dark = document.documentElement.dataset.theme === 'dark' ||
+      (!document.documentElement.dataset.theme && matchMedia('(prefers-color-scheme: dark)').matches);
+    btn.textContent = dark ? '☀️' : '🌙';
+    btn.title = dark ? 'Switch to light mode' : 'Switch to dark mode';
+  }
+  updateThemeBtn();
+  btn.addEventListener('click', () => {
+    const dark = document.documentElement.dataset.theme === 'dark' ||
+      (!document.documentElement.dataset.theme && matchMedia('(prefers-color-scheme: dark)').matches);
+    const next = dark ? 'light' : 'dark';
+    document.documentElement.dataset.theme = next;
+    localStorage.setItem('agentorum_theme', next);
+    updateThemeBtn();
+  });
+})();
 
 // When the browser restores this page from the back/forward cache (bfcache),
 // the loading overlay may still be visible from the last navigation.  Reset it.

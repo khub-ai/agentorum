@@ -38,6 +38,41 @@
   }
 }
 
+html[data-theme="dark"] {
+  --bg:         #0f1117;
+  --bg-card:    #1a1d27;
+  --bg-sidebar: #13161f;
+  --bg-header:  #13161f;
+  --border:     #2a2d3a;
+  --text:       #e2e8f0;
+  --text-muted: #8892a4;
+  --accent:     #3b82f6;
+  --badge-bg:   #252836;
+}
+html[data-theme="light"] {
+  --bg:         #f8f9fa;
+  --bg-card:    #ffffff;
+  --bg-sidebar: #f1f3f5;
+  --bg-header:  #ffffff;
+  --border:     #dee2e6;
+  --text:       #212529;
+  --text-muted: #6c757d;
+  --accent:     #2563eb;
+  --badge-bg:   #e9ecef;
+}
+
+#btn-theme-home {
+  background: none;
+  border: none;
+  cursor: pointer;
+  font-size: 16px;
+  padding: 4px 6px;
+  border-radius: var(--radius);
+  color: var(--text-muted);
+  transition: background 0.15s;
+}
+#btn-theme-home:hover { background: var(--bg-sidebar); }
+
 /* ---------------------------------------------------------------------------
    Reset & base
    ------------------------------------------------------------------------- */
@@ -940,3 +975,28 @@ textarea { resize: vertical; }
 .search-result-time    { margin-left: auto; color: var(--text-muted); }
 .search-result-snippet { font-size: 12px; color: var(--text); white-space: pre-wrap; word-break: break-word; }
 .search-empty          { font-size: 13px; color: var(--text-muted); padding: 8px 6px; }
+
+/* Session description */
+.session-description {
+  font-size: 12px;
+  color: var(--text-muted);
+  margin-top: 4px;
+  cursor: text;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+.session-description-empty { font-style: italic; opacity: 0.5; }
+.session-description:hover { color: var(--text); }
+.session-description-input {
+  width: 100%;
+  box-sizing: border-box;
+  font-size: 12px;
+  font-family: inherit;
+  color: var(--text);
+  background: var(--bg);
+  border: 1px solid var(--accent);
+  border-radius: 4px;
+  padding: 4px 6px;
+  resize: vertical;
+  margin-top: 4px;
+}

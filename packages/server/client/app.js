@@ -42,6 +42,11 @@ function connect() {
         allEntries     = msg.entries;
         shownCount     = Math.min(20, allEntries.length);
         applyScores(msg.scores || {});
+        // Restore filter state from localStorage
+        try {
+          const saved = localStorage.getItem('agentorum_filter_hidden');
+          if (saved) filterAuthors = new Set(JSON.parse(saved));
+        } catch {}
         renderAll();
         renderParticipantPills();
         renderAgentCards();
@@ -355,6 +360,7 @@ function renderFilterAuthors() {
     cb.checked = !filterAuthors.has(id);
     cb.addEventListener('change', () => {
       if (cb.checked) filterAuthors.delete(id); else filterAuthors.add(id);
+      try { localStorage.setItem('agentorum_filter_hidden', JSON.stringify([...filterAuthors])); } catch {}
       renderAll();
     });
     const dot = document.createElement('span');
@@ -520,12 +526,18 @@ function makeAgentCard(p) {
                <button class="btn-log"     data-id="${p.id}">📋 Logs</button>`;
   }
 
+  const entryCount = allEntries.filter(e => e.author === p.id).length;
+  const countBadge = entryCount > 0
+    ? `<span class="agent-entry-count" title="${entryCount} entries posted">${entryCount}</span>`
+    : '';
+
   card.innerHTML = `
     <div class="agent-card-header">
       <span class="agent-id" style="color:${participantColor(p.id)}">${p.id}</span>
       <span class="agent-label-name">${label}</span>
       ${modeBadge}
       ${scoreBadge}
+      ${countBadge}
       ${statusPill}
       ${nudgeBadge}
     </div>
@@ -1200,6 +1212,30 @@ function scrollToAnchoredEntry() {
   card.classList.add('entry-highlighted');
   setTimeout(() => card.classList.remove('entry-highlighted'), 2500);
 }
+
+// ---------------------------------------------------------------------------
+// Dark / light mode toggle
+// ---------------------------------------------------------------------------
+(function initTheme() {
+  const saved = localStorage.getItem('agentorum_theme');
+  if (saved) document.documentElement.dataset.theme = saved;
+  const btn = document.getElementById('btn-theme');
+  function updateThemeBtn() {
+    const dark = document.documentElement.dataset.theme === 'dark' ||
+      (!document.documentElement.dataset.theme && matchMedia('(prefers-color-scheme: dark)').matches);
+    btn.textContent = dark ? '☀️' : '🌙';
+    btn.title = dark ? 'Switch to light mode' : 'Switch to dark mode';
+  }
+  updateThemeBtn();
+  btn.addEventListener('click', () => {
+    const dark = document.documentElement.dataset.theme === 'dark' ||
+      (!document.documentElement.dataset.theme && matchMedia('(prefers-color-scheme: dark)').matches);
+    const next = dark ? 'light' : 'dark';
+    document.documentElement.dataset.theme = next;
+    localStorage.setItem('agentorum_theme', next);
+    updateThemeBtn();
+  });
+})();
 
 // Boot — patch marked once it is loaded (it loads via CDN after this module)
 window.addEventListener('load', () => { patchMarkedForVideo(); scrollToAnchoredEntry(); });

@@ -744,6 +744,18 @@ async function handleRequest(req, res) {
       }
     }
 
+    // PATCH /api/sessions/:projectId/:sessionId/description
+    const descMatch = pathname.match(/^\/api\/sessions\/([^/]+)\/([^/]+)\/description$/);
+    if (descMatch && method === 'PATCH') {
+      const [, projectId, sessionId] = descMatch;
+      try {
+        const { description } = JSON.parse(await readBody(req));
+        return jsonResp(res, await workspaceManager.updateSessionDescription(projectId, sessionId, description));
+      } catch (err) {
+        return jsonResp(res, { error: err.message }, 400);
+      }
+    }
+
     // POST /api/sessions/:projectId/:sessionId/open
     const openMatch = pathname.match(/^\/api\/sessions\/([^/]+)\/([^/]+)\/open$/);
     if (openMatch && method === 'POST') {

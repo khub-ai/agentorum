@@ -27,7 +27,17 @@ The foundation is working. You can download Agentorum today and use it.
 - **Session export** — download any session as a self-contained HTML file, suitable for sharing with stakeholders who are not running Agentorum
 - **Summary checkpoint** — write a `summary.md` from the 📋 button in the session topbar; agents read it before scanning the chatlog, keeping context cost low for long sessions
 - **Rename projects and sessions** — inline rename with the ✏ pencil button on any project card or session row
+- **Rename workspace** — click the ✏ button next to the workspace name to rename it; stored in `workspace.json`
 - **Bulk project cleanup** — one-click deletion of all inactive projects from the Projects page
+- **Session switcher** — dropdown in the session topbar lets you jump between sessions in the same project without returning to the Projects page
+- **Cross-session search** — search entries across all sessions within a project from the sessions panel; results show session name, author, and snippet
+- **PWA support** — install Agentorum to your phone or tablet home screen via `manifest.json` and a service worker; works on Android and iOS
+- **Trigger files for interactive agents** — every new entry writes a `trigger.json` in the session directory so a watching interactive agent can respond automatically
+- **Keyboard shortcuts** — Ctrl/Cmd+Enter posts a compose entry; Esc closes the topmost modal or compose bar; `/` focuses the search bar
+- **Score breakdown modal** — click a participant's score badge to see the full history of rating events with type, points, rater, rationale, and timestamp
+- **Entry anchor links** — entry timestamps are links that set `#entry-{id}` in the URL; sharing the URL scrolls directly to that entry
+- **Markdown export** — download any session as a `.md` file from the 📝 button in the session topbar; complements the existing HTML export
+- **Entry copy button** — 📋 button on each entry card copies the text to the clipboard with a ✓ confirmation flash
 - **Windows / Mac / Linux** — runs anywhere Node.js runs
 
 ---
@@ -36,10 +46,6 @@ The foundation is working. You can download Agentorum today and use it.
 
 These are actively being worked on or are the immediate next items on the list.
 
-- **Mobile responsive layout** — the full debate view adapts to small screens with a collapsible bottom drawer for the agents panel
-- **Cross-session search** — search across all sessions within a project, not just the current one
-- **PWA support** — install Agentorum to your phone or tablet home screen and use it as a full-screen app without a browser frame; works on Android and iOS
-- **Trigger files for interactive agents** — when a new entry arrives, Agentorum writes a small trigger file so an interactive agent can be watching for it and respond without the developer prompting manually
 - **Electron desktop app** — a proper installable desktop application for Windows, Mac, and Linux, with a native menu and no terminal required
 
 ---
