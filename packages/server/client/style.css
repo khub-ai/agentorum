@@ -420,6 +420,23 @@ label { display: flex; align-items: center; gap: 6px; cursor: pointer; }
 .agent-actions { display: flex; gap: 4px; flex-wrap: wrap; align-items: center; }
 .agent-actions button { font-size: 11px; padding: 2px 7px; }
 
+/* Nudge badge — shown on interactive agent cards when an automation rule fired */
+.agent-nudge-badge {
+  font-size: 10px;
+  font-weight: 700;
+  padding: 2px 7px;
+  border-radius: 999px;
+  background: #ea580c22;
+  color: #ea580c;
+  border: 1px solid #ea580c55;
+  white-space: nowrap;
+  animation: pulse-nudge 1s ease-in-out infinite alternate;
+}
+@keyframes pulse-nudge {
+  from { opacity: 0.65; box-shadow: 0 0 0 0px #ea580c44; }
+  to   { opacity: 1;    box-shadow: 0 0 0 3px #ea580c22; }
+}
+
 /* ---------------------------------------------------------------------------
    Automation rules
    ------------------------------------------------------------------------- */

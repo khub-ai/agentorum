@@ -429,8 +429,19 @@ function evaluateRules(entry) {
     if (!rule.enabled) continue;
     if (rule.trigger?.type === 'entry_from' && rule.trigger?.author === entry.author) {
       const participant = config.participants.find(p => p.id === rule.action?.agentId);
-      if (participant && isWatcherTriggerable(participant)) {
-        setTimeout(() => triggerAgent(participant), rule.action?.delayMs ?? 0);
+      if (participant) {
+        if (isWatcherTriggerable(participant)) {
+          // Watcher mode: spawn/trigger the subprocess automatically
+          setTimeout(() => triggerAgent(participant), rule.action?.delayMs ?? 0);
+        } else if (participant.mode === 'interactive') {
+          // Interactive mode: can't auto-trigger — nudge the UI instead so the
+          // user knows to prompt this agent manually in their terminal
+          setTimeout(() => broadcast({
+            type: 'agent_nudge',
+            agentId: participant.id,
+            triggeredBy: entry.author
+          }), rule.action?.delayMs ?? 0);
+        }
       }
     }
     // every_5_entries rule: check total entry count

@@ -14,9 +14,11 @@ let participantMap  = {};   // id → participant config object
 let agentStatusMap  = {};   // id → { status, pid, lastResponseAt, logs }
 let scoreMap        = {};   // participantId → { total, events[] }
 let ratedEntryMap   = {};   // entryId → [{ participantId, event, score, rater }]
+let nudgeMap        = {};   // participantId → { triggeredBy } — pending response nudge
 let serverConfig    = {};   // full config from server
 let activeLogAgent  = null; // which agent's log drawer is open
 let pendingRateEntry = null; // entry currently being rated by human
+let _sessionToken   = null; // session token, used to persist init-done state
 let searchQuery     = '';
 let filterAuthors   = new Set(); // ids that are HIDDEN (unchecked)
 let filterFrom      = '';
@@ -52,6 +54,11 @@ function connect() {
         msg.entries.forEach(e => {
           allEntries.push(e);
           newSinceLoad.add(e.id);
+          // If this participant had a pending nudge, clear it — they responded
+          if (nudgeMap[e.author]) {
+            delete nudgeMap[e.author];
+            updateAgentCard(e.author);
+          }
           if (filterNewOnly || isVisible(e)) appendEntryCard(e);
         });
         updateNewBadge();
@@ -79,6 +86,12 @@ function connect() {
         applyScores(msg.scores || {});
         renderAgentCards();   // refresh score badges
         renderAll();          // refresh entry pips
+        break;
+      case 'agent_nudge':
+        // An automation rule fired for an interactive agent — the server can't
+        // auto-trigger it, so it notifies the UI to prompt the user instead.
+        nudgeMap[msg.agentId] = { triggeredBy: msg.triggeredBy };
+        updateAgentCard(msg.agentId);
         break;
       case 'ping':
         break;
@@ -482,6 +495,12 @@ function makeAgentCard(p) {
     ? `<span class="agent-status ${s.status}">${s.status}</span>`
     : '';
 
+  // Nudge badge — shown when an automation rule fired for this interactive agent
+  const nudge = nudgeMap[p.id];
+  const nudgeBadge = nudge
+    ? `<span class="agent-nudge-badge" title="Triggered by ${nudge.triggeredBy} — prompt this agent to respond">⚡ respond</span>`
+    : '';
+
   // Action controls — differ by mode
   let actions;
   if (ctrlMode === 'interactive') {
@@ -506,6 +525,7 @@ function makeAgentCard(p) {
       ${modeBadge}
       ${scoreBadge}
       ${statusPill}
+      ${nudgeBadge}
     </div>
     <div class="agent-actions">${actions}</div>
     ${s.lastResponseAt ? `<div class="agent-last">Last: ${timeAgo(s.lastResponseAt.replace('T',' ').slice(0,19))}</div>` : ''}
@@ -599,10 +619,13 @@ function expandInitAgentsPanel() {
   document.getElementById('init-agents-chevron').textContent = '▾';
 }
 
-// "Done" — close modal and collapse the sidebar block; job is done
+// "Done" — close modal, collapse sidebar, and remember so it won't re-fire on reload
 document.getElementById('btn-init-done').addEventListener('click', () => {
   closeInitModal();
   collapseInitAgentsPanel();
+  if (_sessionToken) {
+    localStorage.setItem(`agentorum_init_done_${_sessionToken}`, '1');
+  }
 });
 
 // "Show again later" — close modal but leave sidebar expanded so commands stay visible
@@ -642,6 +665,7 @@ async function renderInitAgentsPanel(autoShow = false) {
     return;
   }
 
+  _sessionToken   = data.token;
   _initAgentsData = data.interactiveParticipants;
 
   // Sidebar compact cards (copy buttons only, no modal chrome)
@@ -666,8 +690,11 @@ async function renderInitAgentsPanel(autoShow = false) {
     container.appendChild(card);
   });
 
-  // Auto-show modal on first load so it cannot be missed
-  if (autoShow) openInitModal(data.interactiveParticipants);
+  // Auto-show modal on session load — but only once per session.
+  // After the user clicks "Done", we store a flag in localStorage keyed on
+  // the session token so reloads and reconnects don't re-prompt.
+  const alreadyDone = data.token && localStorage.getItem(`agentorum_init_done_${data.token}`);
+  if (autoShow && !alreadyDone) openInitModal(data.interactiveParticipants);
 }
 
 // Sidebar copy buttons (delegated, catches any remaining plain .btn-copy clicks)
