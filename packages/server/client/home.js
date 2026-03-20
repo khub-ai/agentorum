@@ -172,11 +172,14 @@ function renderProjects() {
       }
     });
 
-    // "+ Session" button on card
-    card.querySelector('.btn-new-session-card').addEventListener('click', (e) => {
-      e.stopPropagation();
-      openNewSessionModal(project);
-    });
+    // "+ Session" button on card (only present for non-active projects)
+    const newSessionBtn = card.querySelector('.btn-new-session-card');
+    if (newSessionBtn) {
+      newSessionBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        openNewSessionModal(project);
+      });
+    }
 
     // Delete button on card
     card.querySelector('.btn-delete-project').addEventListener('click', (e) => {
