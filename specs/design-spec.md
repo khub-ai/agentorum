@@ -1130,3 +1130,108 @@ Usage-based billing (per token, per session) adds metering complexity; defer unt
 5. Add LLM API backend implementation.
 6. Wire up LemonSqueezy billing and API key storage.
 7. WebSocket scaling (only needed when concurrent user count justifies it).
+
+---
+
+## 18. Agent Rating System
+
+### 18.1 Purpose
+
+A debate is only as useful as the quality of its participants. As sessions grow longer and the same agents make repeated contributions, users and moderators need a lightweight, structured way to signal which contributions were valuable and which were not.
+
+The agent rating system provides a **participant-level reputation score** computed entirely from typed rating events written directly into the chatlog. Scores are visible in the GUI without requiring any external service.
+
+A secondary benefit: the rating log is part of the same append-only chatlog as the debate itself, so the full history of which contributions were rated (and why) is auditable and exportable alongside the debate transcript.
+
+### 18.2 Rating Entry Format
+
+A rating is a regular chatlog entry with additional metadata fields in the frontmatter:
+
+```markdown
+### 2026-03-19 14:22:00 - HUMAN
+
+@type: rating
+@target: BULL-VC
+@event: catch
+@score: 2
+@entryRef: <sha256-of-rated-entry>
+
+The TAM estimate was correctly challenged — the $4B figure double-counts the SMB segment.
+```
+
+Fields:
+
+| Field | Required | Description |
+|---|---|---|
+| `@type: rating` | Yes | Identifies this entry as a rating event |
+| `@target` | Yes | Participant ID being rated |
+| `@event` | Yes | Named event type (see §18.3) |
+| `@score` | No | Numeric point value; defaults to the event's canonical score if omitted |
+| `@entryRef` | No | ID of the specific entry being rated; links pips to that card in the GUI |
+
+Ratings may be submitted by any participant (human or agent). A Moderator agent can be configured to submit ratings automatically. When posted via the GUI rate modal, the rater is the participant selected in the "Rate as" dropdown.
+
+### 18.3 Event Types and Point Values
+
+| Event | Points | Meaning |
+|---|---|---|
+| `catch` | +2 | Correctly identified an error or flaw in another agent's argument |
+| `insight` | +2 | Provided a novel, valuable perspective or insight |
+| `confirm` | +1 | Corroborated a claim with supporting evidence |
+| `error` | −2 | Made a factual error or logical mistake |
+| `omission` | −1 | Failed to address a key relevant point |
+| `retract` | −1 | Withdrew a previous claim without adequate justification |
+| `deflect` | −1 | Avoided a direct question or challenge |
+
+Point values are intentionally asymmetric: serious errors (−2) cost twice what a corroboration gains (+1), reflecting the higher cost of misinformation in a deliberation context.
+
+### 18.4 Score Computation
+
+`computeScores(entries)` on the server side:
+
+1. Scans all entries for `@type: rating`
+2. Groups by `@target` participant
+3. Accumulates `@score` values (or default for the named event)
+4. Returns `{ [participantId]: { total, events[] } }` where each event record includes: ratingEntryId, rater, event, score, entryRef, ts, rationale
+
+Scores are computed fresh on each chatlog load and re-broadcast via `scores_updated` WebSocket message whenever a new rating entry arrives. There is no persistent score state — the chatlog is the source of truth.
+
+### 18.5 GUI Components
+
+**Score badge on agent card** — shown in the right-panel agent card next to the participant's name:
+- Green background with `+N` for positive total scores
+- Red background with `−N` for negative totals
+- Muted `±0` for zero (only shown if at least one rating event exists)
+- Hidden if the participant has no rating events yet
+
+**Rating pips on entry cards** — small colour-coded chips in the entry header showing `+2 catch` or `−1 omission` for each rating that references that entry via `@entryRef`. Positive events are green; negative are red.
+
+**Rate button** — a `★` button appears in each entry header on hover (hidden for `@type: rating` entries themselves, to prevent recursive meta-ratings). Clicking opens the rate modal.
+
+**Rate entry modal** — a full-screen modal (z-index 510, above the init modal at 500) with:
+1. Entry reference card showing rated entry author, timestamp, and body preview
+2. "Rate as" dropdown pre-selected to the first human participant
+3. Radio group of all seven event types with name, point value, and one-line description
+4. Optional rationale textarea
+5. Submit (POST to `/api/entries` with metadata) and Cancel buttons
+
+### 18.6 API
+
+| Method | Path | Description |
+|---|---|---|
+| `GET` | `/api/scores` | Returns computed scores for all participants |
+| `GET` | `/api/scores/events` | Returns the canonical event map `{ eventName: points }` |
+| `POST` | `/api/entries` | Accepts `{ author, body, meta }` — `meta` fields are written as `@key: value` frontmatter lines |
+
+The `POST /api/entries` endpoint already supports arbitrary `meta` objects, so no new routes are required to submit a rating — the same endpoint used for regular entries handles it.
+
+### 18.7 Moderator Agent Pattern
+
+A dedicated `MODERATOR` participant can be added to any session to submit ratings automatically. Its system prompt instructs it to watch for notable events and post `@type: rating` entries referencing the original entry. Because ratings use the standard chatlog format, the moderator can be an automated agent, an interactive agent, or the human user — the system is indifferent.
+
+### 18.8 Future Enhancements (v2+)
+
+- **Rating history panel** — a dedicated sidebar view showing the full rating timeline for each participant, sortable by event type or time
+- **Session-level leaderboard** — a ranked view of all participants by cumulative score at the end of a session
+- **Moderator-generated summary** — auto-generated end-of-session summary calling out the highest-rated contributions and flagging flagged errors
+- **Cross-session reputation** — aggregate scores across all sessions in a project, to track which participants improve or degrade over time with repeated use

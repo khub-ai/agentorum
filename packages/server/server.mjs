@@ -188,6 +188,38 @@ function formatEntry(participantId, body, meta = {}) {
 }
 
 // ---------------------------------------------------------------------------
+// Rating / scoring
+// ---------------------------------------------------------------------------
+const SCORE_EVENTS = {
+  catch: 2, insight: 2, confirm: 1,
+  error: -2, omission: -1, retract: -1, deflect: -1
+};
+
+function computeScores(entries) {
+  // scores[participantId] = { total, events[] }
+  const scores = {};
+  for (const entry of entries) {
+    if (entry.meta?.type !== 'rating') continue;
+    const target = entry.meta?.target;
+    if (!target) continue;
+    const eventName = entry.meta?.event || '';
+    const score     = parseInt(entry.meta?.score ?? SCORE_EVENTS[eventName] ?? 0, 10);
+    if (!scores[target]) scores[target] = { total: 0, events: [] };
+    scores[target].total += score;
+    scores[target].events.push({
+      ratingEntryId: entry.id,
+      rater:         entry.author,
+      event:         eventName,
+      score,
+      entryRef:      entry.meta?.entryRef || null,
+      ts:            entry.timestamp,
+      rationale:     entry.body || ''
+    });
+  }
+  return scores;
+}
+
+// ---------------------------------------------------------------------------
 // Chatlog watcher
 // ---------------------------------------------------------------------------
 let _lastEntries  = [];
@@ -227,6 +259,10 @@ async function processChatlogChange() {
     if (fresh.length > 0) {
       broadcast({ type: 'entries_added', entries: fresh });
       for (const entry of fresh) evaluateRules(entry);
+      // Rebroadcast scores whenever a new rating entry arrives
+      if (fresh.some(e => e.meta?.type === 'rating')) {
+        broadcast({ type: 'scores_updated', scores: computeScores(entries) });
+      }
     }
   } catch (err) {
     console.error('[watcher]', err.message);
@@ -696,6 +732,18 @@ async function handleRequest(req, res) {
     return jsonResp(res, { ok: true });
   }
 
+  // --- /api/scores — computed scores from rating entries ---
+  if (pathname === '/api/scores' && method === 'GET') {
+    const raw     = await fsp.readFile(config.chatlog, 'utf8').catch(() => '');
+    const entries = parseEntries(raw);
+    return jsonResp(res, computeScores(entries));
+  }
+
+  // --- /api/scores/events — all valid rating event types and their point values ---
+  if (pathname === '/api/scores/events' && method === 'GET') {
+    return jsonResp(res, SCORE_EVENTS);
+  }
+
   // --- /api/session — current session info and interactive agent init commands ---
   if (pathname === '/api/session' && method === 'GET') {
     if (!activeConfigPath) return jsonResp(res, { active: false });
@@ -880,7 +928,7 @@ async function main() {
     if (config.chatlog && fs.existsSync(config.chatlog)) {
       const raw     = await fsp.readFile(config.chatlog, 'utf8').catch(() => '');
       const entries = parseEntries(raw);
-      ws.send(JSON.stringify({ type: 'init', entries: entries.slice(-500), total: entries.length, config }));
+      ws.send(JSON.stringify({ type: 'init', entries: entries.slice(-500), total: entries.length, config, scores: computeScores(entries) }));
       for (const p of config.participants.filter(p => p.type === 'agent')) {
         ws.send(JSON.stringify({ type: 'agent_status', agent: getAgentStatus(p.id) }));
       }

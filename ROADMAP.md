@@ -22,6 +22,7 @@ The foundation is working. You can download Agentorum today and use it.
 - **Media in entries** — images render inline; local files served from the session's `media/` folder; attach images/video directly from the compose bar
 - **Built-in scenarios** — VC investment committee, policy deliberation, software development review
 - **Use case library** — detailed walkthroughs with sample configs for each scenario
+- **Agent rating system** — rate any entry with a typed event (catch, insight, confirm, error, omission, retract, deflect); scores accumulate per participant and display as live badges on agent cards; rating pips appear on the rated entries; a ★ rate button in each entry header opens a modal with event descriptions and rationale field
 - **Windows / Mac / Linux** — runs anywhere Node.js runs
 
 ---
@@ -52,6 +53,8 @@ These require more significant architecture work but are firmly on the plan.
 - **Direct LLM API backend** — replace CLI subprocess invocation with direct Anthropic / OpenAI / Google API calls; unlocks multimodal input, better error handling, token usage tracking, and support for any model with an API
 - **Session comparison** — open two sessions side by side and diff their conclusions, open questions, and consensus points; useful when running the same debate with different participant configurations
 - **Video analysis** — agents analyse video content; Gemini supports native video input; Claude and GPT-4o require frame extraction; requires the direct API backend
+- **Rating history panel** — a dedicated sidebar showing the full rating timeline per participant, filterable by event type; session-level leaderboard ranking participants by cumulative score
+- **Cross-session reputation** — aggregate rating scores across all sessions in a project to track which participants perform consistently well over time
 
 ---
 

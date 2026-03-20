@@ -12,8 +12,11 @@ let newSinceLoad    = new Set(); // ids of entries arriving after init
 let collapseState   = {};   // id → true (collapsed)
 let participantMap  = {};   // id → participant config object
 let agentStatusMap  = {};   // id → { status, pid, lastResponseAt, logs }
+let scoreMap        = {};   // participantId → { total, events[] }
+let ratedEntryMap   = {};   // entryId → [{ participantId, event, score, rater }]
 let serverConfig    = {};   // full config from server
 let activeLogAgent  = null; // which agent's log drawer is open
+let pendingRateEntry = null; // entry currently being rated by human
 let searchQuery     = '';
 let filterAuthors   = new Set(); // ids that are HIDDEN (unchecked)
 let filterFrom      = '';
@@ -36,6 +39,7 @@ function connect() {
         buildParticipantMap(serverConfig.participants || []);
         allEntries     = msg.entries;
         shownCount     = Math.min(20, allEntries.length);
+        applyScores(msg.scores || {});
         renderAll();
         renderParticipantPills();
         renderAgentCards();
@@ -71,6 +75,11 @@ function connect() {
         renderAgentCards();
         renderComposeAuthorOptions();
         break;
+      case 'scores_updated':
+        applyScores(msg.scores || {});
+        renderAgentCards();   // refresh score badges
+        renderAll();          // refresh entry pips
+        break;
       case 'ping':
         break;
     }
@@ -100,6 +109,26 @@ function participantName(id) {
 
 function participantRole(id) {
   return participantMap[id]?.role || '';
+}
+
+// ---------------------------------------------------------------------------
+// Scoring helpers
+// ---------------------------------------------------------------------------
+function applyScores(scores) {
+  scoreMap = scores;
+  ratedEntryMap = {};
+  for (const [participantId, data] of Object.entries(scores)) {
+    for (const ev of (data.events || [])) {
+      if (!ev.entryRef) continue;
+      if (!ratedEntryMap[ev.entryRef]) ratedEntryMap[ev.entryRef] = [];
+      ratedEntryMap[ev.entryRef].push({ participantId, event: ev.event, score: ev.score, rater: ev.rater });
+    }
+  }
+}
+
+function scoreLabel(total) {
+  if (total === 0) return '±0';
+  return total > 0 ? `+${total}` : `${total}`;
 }
 
 // ---------------------------------------------------------------------------
@@ -165,13 +194,25 @@ function makeCard(entry) {
     ? marked.parse(searchQuery ? highlight(entry.body, searchQuery) : entry.body)
     : `<pre>${entry.body}</pre>`;
 
+  // Rating pips — show any ratings this entry has received
+  const ratings    = ratedEntryMap[entry.id] || [];
+  const ratingPips = ratings.map(r => {
+    const cls = r.score > 0 ? 'pip-pos' : 'pip-neg';
+    return `<span class="rating-pip ${cls}" title="${r.event} (${r.score > 0 ? '+' : ''}${r.score}) by ${r.rater}">${r.score > 0 ? '+' : ''}${r.score} ${r.event}</span>`;
+  }).join('');
+
+  // Hide rate button for rating entries themselves (no meta-ratings)
+  const isRatingEntry = entry.meta?.type === 'rating';
+
   card.innerHTML = `
     <div class="entry-header" data-id="${entry.id}">
       <span class="entry-author" style="color:${color}">${entry.author}</span>
       <span class="entry-name">${name}</span>
       ${role ? `<span class="entry-role">${role}</span>` : ''}
       ${metaBadges}
+      ${ratingPips}
       <span class="entry-ts" title="${entry.timestamp}">${timeAgo(entry.timestamp)}</span>
+      ${!isRatingEntry ? `<button class="btn-rate-entry" data-id="${entry.id}" title="Rate this entry">★</button>` : ''}
       <span class="collapse-toggle">${collapsed ? '▸' : '▾'}</span>
     </div>
     <div class="entry-body">${bodyHtml}</div>
@@ -377,16 +418,21 @@ function renderAgentCards() {
 }
 
 function makeAgentCard(p) {
-  const s           = agentStatusMap[p.id] || { status: 'stopped' };
+  const s             = agentStatusMap[p.id] || { status: 'stopped' };
   const isInteractive = p.mode === 'interactive';
-  const card        = document.createElement('div');
-  card.className    = 'agent-card';
-  card.dataset.id   = p.id;
-  const label       = p.label || p.name || p.id;
-  const modeBadge   = isInteractive
-    ? `<span class="agent-mode-badge interactive" title="This agent is managed interactively — use the Initialize Agents panel below">interactive</span>`
+  const card          = document.createElement('div');
+  card.className      = 'agent-card';
+  card.dataset.id     = p.id;
+  const label         = p.label || p.name || p.id;
+  const sc            = scoreMap[p.id];
+  const scoreClass    = sc ? (sc.total > 0 ? 'pos' : sc.total < 0 ? 'neg' : 'zero') : '';
+  const scoreBadge    = sc != null
+    ? `<span class="agent-score-badge ${scoreClass}" title="${sc.events.length} rating event(s)">${scoreLabel(sc.total)}</span>`
     : '';
-  const actions     = isInteractive
+  const modeBadge     = isInteractive
+    ? `<span class="agent-mode-badge interactive" title="Interactive — use Initialize Agents panel">interactive</span>`
+    : '';
+  const actions       = isInteractive
     ? `<span class="agent-interactive-hint">Post via API · see Initialize Agents ↓</span>`
     : `<button class="btn-start"   data-id="${p.id}">▶ Start</button>
        <button class="btn-stop"    data-id="${p.id}">■ Stop</button>
@@ -397,6 +443,7 @@ function makeAgentCard(p) {
       <span class="agent-id" style="color:${participantColor(p.id)}">${p.id}</span>
       <span class="agent-label-name">${label}</span>
       ${modeBadge}
+      ${scoreBadge}
       ${!isInteractive ? `<span class="agent-status ${s.status}">${s.status}</span>` : ''}
     </div>
     <div class="agent-actions">${actions}</div>
@@ -527,6 +574,122 @@ async function renderInitAgentsPanel(autoShow = false) {
 // Sidebar copy buttons (delegated, catches any remaining plain .btn-copy clicks)
 document.getElementById('init-agent-cards').addEventListener('click', e => {
   // Individual copy buttons are attached directly — this is a safety fallback
+});
+
+// ---------------------------------------------------------------------------
+// Rating modal
+// ---------------------------------------------------------------------------
+const EVENT_META = {
+  catch:    { label: 'Catch',    score: +2, desc: 'Correctly identified an error or flaw in another agent\'s argument' },
+  insight:  { label: 'Insight',  score: +2, desc: 'Provided a novel, valuable perspective or insight' },
+  confirm:  { label: 'Confirm',  score: +1, desc: 'Corroborated a claim with supporting evidence' },
+  error:    { label: 'Error',    score: -2, desc: 'Made a factual error or logical mistake' },
+  omission: { label: 'Omission', score: -1, desc: 'Failed to address a key relevant point' },
+  retract:  { label: 'Retract',  score: -1, desc: 'Withdrew a previous claim without adequate justification' },
+  deflect:  { label: 'Deflect',  score: -1, desc: 'Avoided a direct question or challenge' }
+};
+
+function openRateModal(entryId) {
+  const entry = allEntries.find(e => e.id === entryId);
+  if (!entry) return;
+  pendingRateEntry = entry;
+
+  // Populate entry reference card
+  const refEl = document.getElementById('rate-modal-entry-ref');
+  const color  = participantColor(entry.author);
+  refEl.innerHTML = `
+    <div class="rate-entry-author" style="color:${color}">${entry.author}
+      <span style="font-weight:400;color:var(--text-muted);font-size:11px;margin-left:6px">${timeAgo(entry.timestamp)}</span>
+    </div>
+    <div class="rate-entry-preview">${entry.body.replace(/<[^>]*>/g, '').slice(0, 200)}</div>
+  `;
+
+  // Populate author dropdown — pre-select first human participant
+  const authorSel = document.getElementById('rate-author');
+  authorSel.innerHTML = '';
+  (serverConfig.participants || []).forEach(p => {
+    const opt = document.createElement('option');
+    opt.value = p.id;
+    opt.textContent = `${p.id}${p.label && p.label !== p.id ? ` — ${p.label}` : ''}`;
+    if (p.agent === 'human' || p.type === 'human') opt.selected = true;
+    authorSel.appendChild(opt);
+  });
+
+  // Populate event type radio buttons
+  const group = document.getElementById('rate-event-group');
+  group.innerHTML = '<legend>Event type</legend>';
+  Object.entries(EVENT_META).forEach(([key, meta], i) => {
+    const scoreClass = meta.score > 0 ? 'pos' : 'neg';
+    const scoreLabel = meta.score > 0 ? `+${meta.score}` : `${meta.score}`;
+    const label = document.createElement('label');
+    label.className = 'rate-event-option';
+    label.innerHTML = `
+      <input type="radio" name="rate-event" value="${key}" ${i === 0 ? 'checked' : ''}>
+      <div class="rate-event-label">
+        <div class="rate-event-name-row">
+          <span class="rate-event-name">${meta.label}</span>
+          <span class="rate-event-score ${scoreClass}">${scoreLabel}</span>
+        </div>
+        <span class="rate-event-desc">${meta.desc}</span>
+      </div>
+    `;
+    group.appendChild(label);
+  });
+
+  // Clear previous note
+  document.getElementById('rate-note').value = '';
+
+  document.getElementById('rate-modal').style.display = 'flex';
+}
+
+function closeRateModal() {
+  document.getElementById('rate-modal').style.display = 'none';
+  pendingRateEntry = null;
+}
+
+document.getElementById('btn-rate-cancel').addEventListener('click', closeRateModal);
+
+// Backdrop click closes
+document.getElementById('rate-modal').addEventListener('click', e => {
+  if (e.target === document.getElementById('rate-modal')) closeRateModal();
+});
+
+document.getElementById('btn-rate-submit').addEventListener('click', async () => {
+  if (!pendingRateEntry) return;
+
+  const author    = document.getElementById('rate-author').value;
+  const eventKey  = document.querySelector('input[name="rate-event"]:checked')?.value;
+  const note      = document.getElementById('rate-note').value.trim();
+
+  if (!eventKey) return;
+
+  const meta = {
+    type:     'rating',
+    target:   pendingRateEntry.author,
+    event:    eventKey,
+    score:    String(EVENT_META[eventKey]?.score ?? 0),
+    entryRef: pendingRateEntry.id
+  };
+
+  const body = note || `Rating: ${eventKey}`;
+
+  const btn = document.getElementById('btn-rate-submit');
+  btn.disabled = true;
+  btn.textContent = 'Submitting…';
+
+  await api('/api/entries', 'POST', { author, body, meta });
+
+  btn.disabled = false;
+  btn.textContent = 'Submit rating';
+  closeRateModal();
+});
+
+// Event delegation — rate button inside entry headers
+document.getElementById('entries').addEventListener('click', e => {
+  const btn = e.target.closest('.btn-rate-entry');
+  if (!btn) return;
+  e.stopPropagation();   // prevent entry-header click (collapse toggle)
+  openRateModal(btn.dataset.id);
 });
 
 // ---------------------------------------------------------------------------

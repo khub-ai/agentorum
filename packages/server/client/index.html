@@ -97,6 +97,36 @@
   <pre id="log-content"></pre>
 </div>
 
+<!-- ── Rate Entry modal ──────────────────────────────────────────────────── -->
+<div id="rate-modal" style="display:none">
+  <div id="rate-modal-inner">
+    <div id="rate-modal-header">
+      <span id="rate-modal-icon">★</span>
+      <h2>Rate this entry</h2>
+    </div>
+    <div id="rate-modal-entry-ref">
+      <!-- Filled dynamically -->
+    </div>
+    <div id="rate-modal-fields">
+      <label>Rate as
+        <select id="rate-author"></select>
+      </label>
+      <fieldset id="rate-event-group">
+        <legend>Event type</legend>
+        <!-- Filled dynamically -->
+      </fieldset>
+      <label id="rate-note-label">
+        Rationale <span style="font-weight:400;opacity:.6">(optional)</span>
+        <textarea id="rate-note" rows="2" placeholder="Why are you assigning this rating?"></textarea>
+      </label>
+    </div>
+    <div id="rate-modal-actions">
+      <button id="btn-rate-cancel">Cancel</button>
+      <button id="btn-rate-submit" class="btn-primary">Submit rating</button>
+    </div>
+  </div>
+</div>
+
 <!-- ── Initialize Agents modal ──────────────────────────────────────────── -->
 <div id="init-modal" style="display:none">
   <div id="init-modal-inner">
