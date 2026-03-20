@@ -577,17 +577,45 @@ function closeInitModal() {
   document.getElementById('init-modal').style.display = 'none';
 }
 
-document.getElementById('btn-init-done').addEventListener('click', closeInitModal);
+function collapseInitAgentsPanel() {
+  document.getElementById('init-agent-cards').style.display = 'none';
+  document.getElementById('init-agents-chevron').textContent = '▸';
+}
+
+function expandInitAgentsPanel() {
+  document.getElementById('init-agent-cards').style.display = 'block';
+  document.getElementById('init-agents-chevron').textContent = '▾';
+}
+
+// "Done" — close modal and collapse the sidebar block; job is done
+document.getElementById('btn-init-done').addEventListener('click', () => {
+  closeInitModal();
+  collapseInitAgentsPanel();
+});
+
+// "Show again later" — close modal but leave sidebar expanded so commands stay visible
 document.getElementById('btn-init-show-again').addEventListener('click', closeInitModal);
 
-// Clicking the backdrop also closes
+// Clicking the backdrop closes the modal (no collapse — treat as accidental dismiss)
 document.getElementById('init-modal').addEventListener('click', e => {
   if (e.target === document.getElementById('init-modal')) closeInitModal();
 });
 
-// Re-open button in sidebar
-document.getElementById('btn-reinit').addEventListener('click', () => {
-  if (_initAgentsData?.length) openInitModal(_initAgentsData);
+// Heading click — toggle the sidebar body open/closed
+document.getElementById('init-agents-heading').addEventListener('click', e => {
+  if (e.target.closest('#btn-reinit')) return;  // reinit button handled separately
+  const cards = document.getElementById('init-agent-cards');
+  if (cards.style.display === 'none') expandInitAgentsPanel();
+  else collapseInitAgentsPanel();
+});
+
+// Re-open button — expand sidebar first so the cards are visible, then open modal
+document.getElementById('btn-reinit').addEventListener('click', e => {
+  e.stopPropagation();  // don't bubble to heading toggle
+  if (_initAgentsData?.length) {
+    expandInitAgentsPanel();
+    openInitModal(_initAgentsData);
+  }
 });
 
 async function renderInitAgentsPanel(autoShow = false) {

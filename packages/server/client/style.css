@@ -617,8 +617,17 @@ label { display: flex; align-items: center; gap: 6px; cursor: pointer; }
   justify-content: flex-end;
 }
 
-/* Reinit button in sidebar section header */
-#init-agents-section h3 { display: flex; align-items: center; justify-content: space-between; }
+/* Collapsible Interactive Agents section header */
+#init-agents-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  cursor: pointer;
+  user-select: none;
+}
+#init-agents-heading:hover { color: var(--accent); }
+#init-agents-chevron { font-size: 10px; margin-right: 3px; transition: color .15s; }
+
 #btn-reinit {
   font-size: 10px;
   padding: 1px 6px;
