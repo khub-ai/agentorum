@@ -261,4 +261,10 @@ node packages/server/server.mjs --config examples/policy-mediation/agentorum.con
 
 ## License
 
-MIT
+Agentorum is released under the **[PolyForm Noncommercial License 1.0.0](LICENSE)**.
+
+**Free** for personal use, research, internal business use, government, education, and open-source projects — at any scale, with no strings attached.
+
+**A separate commercial license is required** if you charge others for access to Agentorum, offer it as a hosted service, or bundle it into a paid product. To discuss commercial licensing, open an issue or contact us via GitHub.
+
+> If you are evaluating Agentorum for commercial use, you may do so freely — the license explicitly permits commercial evaluation before any commitment.
