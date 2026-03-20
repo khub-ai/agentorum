@@ -989,9 +989,10 @@ async function handleRequest(req, res) {
     });
   }
 
-  // --- /api/export --- Download chatlog as a self-contained HTML file ---
+  // --- /api/export --- Download chatlog as HTML or Markdown ---
   if (pathname === '/api/export' && method === 'GET') {
     if (!activeConfigPath) return jsonResp(res, { error: 'no active session' }, 404);
+    const format = new URL(`http://x${req.url}`).searchParams.get('format') || 'html';
     try {
       const raw     = await fsp.readFile(config.chatlog, 'utf8').catch(() => '');
       const entries = parseEntries(raw);
@@ -999,6 +1000,26 @@ async function handleRequest(req, res) {
       const sessionName = path.basename(sessionDir);
       const projectName = path.basename(path.dirname(path.dirname(sessionDir)));
       const exportedAt  = new Date().toLocaleString();
+
+      if (format === 'md') {
+        const lines = [`# ${projectName} / ${sessionName}`, ``, `_Exported ${exportedAt} · ${entries.length} entries_`, ``];
+        entries.forEach(e => {
+          lines.push(`## ${e.author} — ${e.timestamp}`);
+          lines.push(``);
+          lines.push(e.body);
+          lines.push(``);
+          lines.push(`---`);
+          lines.push(``);
+        });
+        const md       = lines.join('\n');
+        const filename = `${projectName}-${sessionName}.md`;
+        res.writeHead(200, {
+          'Content-Type': 'text/markdown; charset=utf-8',
+          'Content-Disposition': `attachment; filename="${filename}"`,
+        });
+        res.end(md);
+        return;
+      }
 
       const rows = entries.map(e => {
         const body = e.body

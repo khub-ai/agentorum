@@ -229,7 +229,8 @@ function makeCard(entry) {
       ${role ? `<span class="entry-role">${role}</span>` : ''}
       ${metaBadges}
       ${ratingPips}
-      <span class="entry-ts" title="${entry.timestamp}">${timeAgo(entry.timestamp)}</span>
+      <a class="entry-ts" href="#entry-${entry.id}" title="${entry.timestamp}" onclick="event.stopPropagation();history.replaceState(null,'','#entry-${entry.id}')">${timeAgo(entry.timestamp)}</a>
+      <button class="btn-copy-entry" data-body="${entry.body.replace(/"/g,'&quot;')}" title="Copy to clipboard">📋</button>
       ${!isRatingEntry ? `<button class="btn-rate-entry" data-id="${entry.id}" title="Rate this entry">★</button>` : ''}
       <span class="collapse-toggle">${collapsed ? '▸' : '▾'}</span>
     </div>
@@ -541,6 +542,55 @@ function updateAgentCard(id) {
   if (p) card.replaceWith(makeAgentCard(p));
 }
 
+// Score badge click → score breakdown modal
+document.getElementById('agent-cards').addEventListener('click', e => {
+  const badge = e.target.closest('.agent-score-badge');
+  if (!badge) return;
+  const card  = badge.closest('.agent-card');
+  const id    = card?.dataset.id;
+  if (!id) return;
+  openScoreModal(id);
+});
+
+function openScoreModal(participantId) {
+  const sc  = scoreMap[participantId];
+  const p   = (serverConfig.participants || []).find(p => p.id === participantId);
+  const name = p?.label || p?.name || participantId;
+  document.getElementById('score-modal-title').textContent = `${participantId} — ${name}`;
+  document.getElementById('score-modal-total').innerHTML =
+    sc ? `<span class="score-total ${sc.total > 0 ? 'pos' : sc.total < 0 ? 'neg' : 'zero'}">${scoreLabel(sc.total)} total</span>` : 'No ratings yet.';
+
+  const eventsEl = document.getElementById('score-modal-events');
+  eventsEl.innerHTML = '';
+  if (sc?.events?.length) {
+    sc.events.slice().reverse().forEach(ev => {
+      const row = document.createElement('div');
+      row.className = 'score-event-row';
+      const pts = ev.score > 0 ? `+${ev.score}` : `${ev.score}`;
+      row.innerHTML = `
+        <span class="score-event-pts ${ev.score > 0 ? 'pos' : 'neg'}">${pts}</span>
+        <span class="score-event-type">${ev.event}</span>
+        <span class="score-event-rater">by ${ev.rater}</span>
+        ${ev.note ? `<span class="score-event-note">${ev.note}</span>` : ''}
+        <span class="score-event-ts">${timeAgo(ev.timestamp)}</span>
+      `;
+      eventsEl.appendChild(row);
+    });
+  } else {
+    eventsEl.innerHTML = '<p class="score-empty">No rating events yet.</p>';
+  }
+  document.getElementById('score-modal').style.display = 'flex';
+}
+
+function closeScoreModal() {
+  document.getElementById('score-modal').style.display = 'none';
+}
+
+document.getElementById('btn-score-close').addEventListener('click', closeScoreModal);
+document.getElementById('score-modal').addEventListener('click', e => {
+  if (e.target === e.currentTarget) closeScoreModal();
+});
+
 // Agent card button delegation
 document.getElementById('agent-cards').addEventListener('click', async e => {
   const btn = e.target.closest('button');
@@ -811,12 +861,22 @@ document.getElementById('btn-rate-submit').addEventListener('click', async () =>
   closeRateModal();
 });
 
-// Event delegation — rate button inside entry headers
+// Event delegation — rate button and copy button inside entry headers
 document.getElementById('entries').addEventListener('click', e => {
-  const btn = e.target.closest('.btn-rate-entry');
-  if (!btn) return;
-  e.stopPropagation();   // prevent entry-header click (collapse toggle)
-  openRateModal(btn.dataset.id);
+  const rateBtn = e.target.closest('.btn-rate-entry');
+  if (rateBtn) {
+    e.stopPropagation();
+    openRateModal(rateBtn.dataset.id);
+    return;
+  }
+  const copyBtn = e.target.closest('.btn-copy-entry');
+  if (copyBtn) {
+    e.stopPropagation();
+    navigator.clipboard.writeText(copyBtn.dataset.body).catch(() => {});
+    const orig = copyBtn.textContent;
+    copyBtn.textContent = '✓';
+    setTimeout(() => { copyBtn.textContent = orig; }, 1200);
+  }
 });
 
 // ---------------------------------------------------------------------------
@@ -1090,8 +1150,59 @@ async function populateSessionSwitcher(projectId, activeSessionId) {
   } catch { /* non-fatal */ }
 }
 
+// ---------------------------------------------------------------------------
+// Keyboard shortcuts
+// ---------------------------------------------------------------------------
+document.addEventListener('keydown', e => {
+  const tag = document.activeElement?.tagName;
+  const inInput = tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT';
+
+  // Ctrl/Cmd+Enter → post compose (works even inside the textarea)
+  if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
+    const bar = document.getElementById('compose-bar');
+    if (bar.style.display !== 'none') {
+      e.preventDefault();
+      document.getElementById('btn-post').click();
+    }
+    return;
+  }
+
+  // Esc → close topmost open modal / compose bar
+  if (e.key === 'Escape') {
+    if (document.getElementById('rate-modal').style.display !== 'none')   { closeRateModal();    return; }
+    if (document.getElementById('summary-modal').style.display !== 'none') { closeSummaryModal(); return; }
+    if (document.getElementById('score-modal').style.display !== 'none')   { closeScoreModal();   return; }
+    if (document.getElementById('init-modal').style.display !== 'none')    { closeInitModal();    return; }
+    if (document.getElementById('config-modal').style.display !== 'none')  { document.getElementById('config-modal').style.display = 'none'; return; }
+    if (document.getElementById('compose-bar').style.display !== 'none')   { document.getElementById('compose-bar').style.display = 'none'; return; }
+    return;
+  }
+
+  // / → focus search (when not already in an input)
+  if (e.key === '/' && !inInput) {
+    e.preventDefault();
+    document.getElementById('search-input').focus();
+  }
+});
+
+// ---------------------------------------------------------------------------
+// Entry anchor links — scroll to #entry-{id} after initial render
+// ---------------------------------------------------------------------------
+function scrollToAnchoredEntry() {
+  const hash = location.hash;
+  if (!hash.startsWith('#entry-')) return;
+  const id = hash.slice(1); // entry-{id}
+  const card = document.querySelector(`.entry-card[data-id="${id.slice(6)}"]`);
+  if (!card) return;
+  // Expand it if collapsed
+  if (card.classList.contains('collapsed')) toggleCard(card.dataset.id);
+  card.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  card.classList.add('entry-highlighted');
+  setTimeout(() => card.classList.remove('entry-highlighted'), 2500);
+}
+
 // Boot — patch marked once it is loaded (it loads via CDN after this module)
-window.addEventListener('load', patchMarkedForVideo);
+window.addEventListener('load', () => { patchMarkedForVideo(); scrollToAnchoredEntry(); });
 connect();
 
 // When the browser restores this page from bfcache (Back button), the

@@ -23,6 +23,7 @@
     <input id="search-input" type="search" placeholder="Search…" autocomplete="off">
     <button id="btn-summary" title="Session summary">📋</button>
     <a id="btn-export" href="/api/export" download title="Export chatlog as HTML">⬇</a>
+    <a id="btn-export-md" href="/api/export?format=md" download title="Export chatlog as Markdown">📝</a>
     <button id="btn-compose-toggle" title="New entry">✏️</button>
     <button id="btn-settings" title="Settings">⚙</button>
   </div>
@@ -104,6 +105,18 @@
     <button id="btn-close-log">✕</button>
   </div>
   <pre id="log-content"></pre>
+</div>
+
+<!-- ── Score breakdown modal ─────────────────────────────────────────────── -->
+<div id="score-modal" style="display:none">
+  <div id="score-modal-inner">
+    <div id="score-modal-header">
+      <span id="score-modal-title">Ratings</span>
+      <button id="btn-score-close">✕</button>
+    </div>
+    <div id="score-modal-total"></div>
+    <div id="score-modal-events"></div>
+  </div>
 </div>
 
 <!-- ── Rate Entry modal ──────────────────────────────────────────────────── -->
