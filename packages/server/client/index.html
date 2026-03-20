@@ -77,7 +77,7 @@
     <div id="agent-cards"></div>
 
     <section id="init-agents-section" style="display:none">
-      <h3>Initialize Agents <button id="btn-reinit" title="Re-open the initialization dialog">↗</button></h3>
+      <h3>Interactive Agents <button id="btn-reinit" title="Re-open the initialization dialog">↗</button></h3>
       <div id="init-agent-cards"></div>
     </section>
 
@@ -132,12 +132,15 @@
   <div id="init-modal-inner">
     <div id="init-modal-header">
       <span id="init-modal-icon">⚠️</span>
-      <h2>Action required: initialize your agents</h2>
+      <h2>Action required: connect your interactive agents</h2>
     </div>
     <p id="init-modal-desc">
-      This session has <strong>interactive agents</strong> that must be connected before they can participate.
-      Paste the command below into each agent's session window now.
-      The agent will read its rules file and confirm its role.
+      This session has <strong>interactive agents</strong> — CLI tools (Claude Code, Codex, etc.) that
+      run in your own terminal and post to this debate via the API.
+      Paste the command below into each agent's terminal window now.
+      The agent will read its rules file and confirm its participant role.
+      <br><br>
+      <em>Agents that use direct API calls do not need this step and are not listed here.</em>
     </p>
     <div id="init-modal-cards"></div>
     <div id="init-modal-footer">

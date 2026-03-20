@@ -281,9 +281,21 @@ function getAgentStatus(id) {
 }
 
 function startAgent(participant) {
-  // Interactive participants manage their own sessions — do not spawn a watcher
+  // Agent control modes:
+  //   'interactive' — user runs their own CLI session (Claude Code, Codex, etc.)
+  //                   and connects it via the copy-paste init command.
+  //                   The server does NOT spawn a subprocess for these.
+  //   'api'         — server calls the LLM provider API directly (future).
+  //                   No subprocess; no init command needed.
+  //   default       — server spawns and manages a CLI watcher subprocess.
+  //
+  // Only the default (watcher) mode reaches the spawn logic below.
   if (participant.mode === 'interactive') {
-    console.log(`[agentorum] ${participant.id} is interactive — not auto-starting watcher`);
+    console.log(`[agentorum] ${participant.id} is interactive — user manages this CLI session; no watcher spawned`);
+    return;
+  }
+  if (participant.mode === 'api') {
+    console.log(`[agentorum] ${participant.id} is api — direct API calls; no watcher spawned`);
     return;
   }
   const { id } = participant;
@@ -404,12 +416,20 @@ function broadcastAgentStatus(id) {
 // ---------------------------------------------------------------------------
 // Automation rules
 // ---------------------------------------------------------------------------
+// Returns true if this participant can be triggered via the watcher/subprocess path.
+// 'interactive' agents run in the user's own terminal — the server must not spawn for them.
+// 'api' agents use direct LLM API calls (future) — a different trigger path will handle them.
+// Only the default watcher mode is eligible for subprocess-based triggering.
+function isWatcherTriggerable(participant) {
+  return participant.mode !== 'interactive' && participant.mode !== 'api';
+}
+
 function evaluateRules(entry) {
   for (const rule of (config.automationRules || [])) {
     if (!rule.enabled) continue;
     if (rule.trigger?.type === 'entry_from' && rule.trigger?.author === entry.author) {
       const participant = config.participants.find(p => p.id === rule.action?.agentId);
-      if (participant && participant.mode !== 'interactive') {
+      if (participant && isWatcherTriggerable(participant)) {
         setTimeout(() => triggerAgent(participant), rule.action?.delayMs ?? 0);
       }
     }
@@ -418,7 +438,7 @@ function evaluateRules(entry) {
       const total = _lastEntries.length;
       if (total > 0 && total % 5 === 0) {
         const participant = config.participants.find(p => p.id === rule.action?.agentId);
-        if (participant && participant.mode !== 'interactive') {
+        if (participant && isWatcherTriggerable(participant)) {
           setTimeout(() => triggerAgent(participant), rule.action?.delayMs ?? 0);
         }
       }

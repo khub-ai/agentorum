@@ -254,9 +254,16 @@ function scheduleProcess() {
 async function main() {
   await loadParticipantConfig();
 
-  // Interactive participants post via the API themselves — the watcher does not fire for them.
+  // Agent control modes — only the default watcher mode runs this process:
+  //   'interactive' → user's own CLI session posts via API; watcher not needed
+  //   'api'         → server calls LLM provider directly (future); watcher not needed
+  //   default       → watcher mode; continue below
   if (participantConfig?.mode === 'interactive') {
-    console.log(`[${PARTICIPANT_ID}] mode=interactive — skipping automated watch`);
+    console.log(`[${PARTICIPANT_ID}] mode=interactive — user manages this session; watcher not started`);
+    process.exit(0);
+  }
+  if (participantConfig?.mode === 'api') {
+    console.log(`[${PARTICIPANT_ID}] mode=api — direct API call mode; watcher not started`);
     process.exit(0);
   }
 

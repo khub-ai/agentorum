@@ -386,6 +386,8 @@ label { display: flex; align-items: center; gap: 6px; cursor: pointer; }
   letter-spacing: .04em;
 }
 .agent-mode-badge.interactive { background: #7c3aed22; color: #7c3aed; }
+.agent-mode-badge.api         { background: #0891b222; color: #0891b2; }
+/* watcher (default) — no badge shown */
 
 .agent-interactive-hint {
   font-size: 10px;

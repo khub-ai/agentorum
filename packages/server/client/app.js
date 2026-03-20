@@ -409,6 +409,30 @@ function updateParticipantPill(id) {
 // ---------------------------------------------------------------------------
 // Agent cards (right panel)
 // ---------------------------------------------------------------------------
+
+/**
+ * Returns the control mode for a participant, used to decide which card
+ * controls and init steps to show.
+ *
+ *  'interactive' — user-managed CLI session (Claude Code, Codex, etc.)
+ *                  Requires the copy-paste init step so the agent reads its
+ *                  rules file.  Only this mode triggers the Initialize Agents
+ *                  modal and sidebar section.
+ *
+ *  'api'         — direct LLM API call managed by the server (future).
+ *                  No manual init required; the server calls the provider
+ *                  directly.  No watcher subprocess is spawned.
+ *
+ *  'watcher'     — default; server spawns and manages a CLI subprocess
+ *                  (claude --print / codex --full-auto) via the watcher.
+ *                  Shows Start / Stop / Trigger / Logs controls.
+ */
+function agentControlMode(p) {
+  if (p.mode === 'interactive') return 'interactive';
+  if (p.mode === 'api')         return 'api';
+  return 'watcher';
+}
+
 function renderAgentCards() {
   const el = document.getElementById('agent-cards');
   el.innerHTML = '';
@@ -418,33 +442,58 @@ function renderAgentCards() {
 }
 
 function makeAgentCard(p) {
-  const s             = agentStatusMap[p.id] || { status: 'stopped' };
-  const isInteractive = p.mode === 'interactive';
-  const card          = document.createElement('div');
-  card.className      = 'agent-card';
-  card.dataset.id     = p.id;
-  const label         = p.label || p.name || p.id;
-  const sc            = scoreMap[p.id];
-  const scoreClass    = sc ? (sc.total > 0 ? 'pos' : sc.total < 0 ? 'neg' : 'zero') : '';
-  const scoreBadge    = sc != null
+  const s        = agentStatusMap[p.id] || { status: 'stopped' };
+  const ctrlMode = agentControlMode(p);
+  const card     = document.createElement('div');
+  card.className = 'agent-card';
+  card.dataset.id = p.id;
+  const label    = p.label || p.name || p.id;
+
+  // Score badge — shown for any mode once ratings exist
+  const sc         = scoreMap[p.id];
+  const scoreClass = sc ? (sc.total > 0 ? 'pos' : sc.total < 0 ? 'neg' : 'zero') : '';
+  const scoreBadge = sc != null
     ? `<span class="agent-score-badge ${scoreClass}" title="${sc.events.length} rating event(s)">${scoreLabel(sc.total)}</span>`
     : '';
-  const modeBadge     = isInteractive
-    ? `<span class="agent-mode-badge interactive" title="Interactive — use Initialize Agents panel">interactive</span>`
+
+  // Mode badge — shown for non-default modes so users know how the agent connects
+  let modeBadge = '';
+  if (ctrlMode === 'interactive') {
+    modeBadge = `<span class="agent-mode-badge interactive" title="Runs in your terminal — paste the init command from the Interactive Agents panel below">interactive</span>`;
+  } else if (ctrlMode === 'api') {
+    modeBadge = `<span class="agent-mode-badge api" title="Direct API call — no manual setup required">api</span>`;
+  }
+  // watcher: default mode — no badge needed
+
+  // Status pill — only meaningful for watcher (server manages the subprocess)
+  const statusPill = ctrlMode === 'watcher'
+    ? `<span class="agent-status ${s.status}">${s.status}</span>`
     : '';
-  const actions       = isInteractive
-    ? `<span class="agent-interactive-hint">Post via API · see Initialize Agents ↓</span>`
-    : `<button class="btn-start"   data-id="${p.id}">▶ Start</button>
-       <button class="btn-stop"    data-id="${p.id}">■ Stop</button>
-       <button class="btn-trigger" data-id="${p.id}">⚡ Trigger</button>
-       <button class="btn-log"     data-id="${p.id}">📋 Logs</button>`;
+
+  // Action controls — differ by mode
+  let actions;
+  if (ctrlMode === 'interactive') {
+    // User runs their own CLI session; the server does not spawn anything.
+    // The copy-paste init command is in the Interactive Agents panel below.
+    actions = `<span class="agent-interactive-hint">Runs in your terminal · see Interactive Agents ↓</span>`;
+  } else if (ctrlMode === 'api') {
+    // Server calls the LLM provider API directly — no manual setup required.
+    actions = `<span class="agent-interactive-hint">Direct API call — no setup required</span>`;
+  } else {
+    // Watcher mode: server spawns and manages a CLI subprocess.
+    actions = `<button class="btn-start"   data-id="${p.id}">▶ Start</button>
+               <button class="btn-stop"    data-id="${p.id}">■ Stop</button>
+               <button class="btn-trigger" data-id="${p.id}">⚡ Trigger</button>
+               <button class="btn-log"     data-id="${p.id}">📋 Logs</button>`;
+  }
+
   card.innerHTML = `
     <div class="agent-card-header">
       <span class="agent-id" style="color:${participantColor(p.id)}">${p.id}</span>
       <span class="agent-label-name">${label}</span>
       ${modeBadge}
       ${scoreBadge}
-      ${!isInteractive ? `<span class="agent-status ${s.status}">${s.status}</span>` : ''}
+      ${statusPill}
     </div>
     <div class="agent-actions">${actions}</div>
     ${s.lastResponseAt ? `<div class="agent-last">Last: ${timeAgo(s.lastResponseAt.replace('T',' ').slice(0,19))}</div>` : ''}
@@ -472,7 +521,15 @@ document.getElementById('agent-cards').addEventListener('click', async e => {
 });
 
 // ---------------------------------------------------------------------------
-// Initialize Agents — modal + sidebar panel
+// Interactive Agents — modal + sidebar panel
+//
+// This section is ONLY relevant to participants with mode === 'interactive'
+// (i.e. CLI-based coding agents like Claude Code and Codex that the user
+// runs in their own terminal window).
+//
+// Agents backed by direct LLM API calls (mode === 'api') or server-managed
+// watcher subprocesses (default / mode === 'watcher') do NOT need this
+// init step and are never shown here.
 // ---------------------------------------------------------------------------
 let _initAgentsData = null;  // cached from /api/session
 
@@ -537,6 +594,8 @@ async function renderInitAgentsPanel(autoShow = false) {
   const section = document.getElementById('init-agents-section');
   if (!section) return;
 
+  // Only participants with mode === 'interactive' need a manual init step.
+  // If there are none, keep the section hidden and do not show the modal.
   const data = await api('/api/session');
   if (!data || !data.active || !data.interactiveParticipants?.length) {
     section.style.display = 'none';
