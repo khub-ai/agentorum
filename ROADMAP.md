@@ -21,8 +21,13 @@ The foundation is working. You can download Agentorum today and use it.
 - **Human-in-the-loop compose** — post your own entries as any participant at any time; steer the debate mid-flight
 - **Media in entries** — images render inline; local files served from the session's `media/` folder; attach images/video directly from the compose bar
 - **Built-in scenarios** — VC investment committee, policy deliberation, software development review
+- **Scenario editor** — create and edit scenarios entirely in the UI (participants with system prompts, automation rules, shared instructions); no JSON editing required
 - **Use case library** — detailed walkthroughs with sample configs for each scenario
 - **Agent rating system** — rate any entry with a typed event (catch, insight, confirm, error, omission, retract, deflect); scores accumulate per participant and display as live badges on agent cards; rating pips appear on the rated entries; a ★ rate button in each entry header opens a modal with event descriptions and rationale field
+- **Session export** — download any session as a self-contained HTML file, suitable for sharing with stakeholders who are not running Agentorum
+- **Summary checkpoint** — write a `summary.md` from the 📋 button in the session topbar; agents read it before scanning the chatlog, keeping context cost low for long sessions
+- **Rename projects and sessions** — inline rename with the ✏ pencil button on any project card or session row
+- **Bulk project cleanup** — one-click deletion of all inactive projects from the Projects page
 - **Windows / Mac / Linux** — runs anywhere Node.js runs
 
 ---
@@ -31,12 +36,9 @@ The foundation is working. You can download Agentorum today and use it.
 
 These are actively being worked on or are the immediate next items on the list.
 
-- **Session export** — download a session as a clean PDF or shareable standalone HTML file, suitable for sending to stakeholders who are not running Agentorum
-- **Summary checkpoint** — SYNTH automatically writes a `summary.md` at configurable intervals, keeping context cost low for long sessions and giving agents a compressed history to work from
-- **Custom scenario editor** — build and save your own participant panels directly in the UI, without editing JSON
+- **Mobile responsive layout** — the full debate view adapts to small screens with a collapsible bottom drawer for the agents panel
 - **Cross-session search** — search across all sessions within a project, not just the current one
 - **PWA support** — install Agentorum to your phone or tablet home screen and use it as a full-screen app without a browser frame; works on Android and iOS
-- **Mobile responsive layout** — the full debate view adapts to small screens with a collapsible bottom drawer for the agents panel
 - **Trigger files for interactive agents** — when a new entry arrives, Agentorum writes a small trigger file so an interactive agent can be watching for it and respond without the developer prompting manually
 - **Electron desktop app** — a proper installable desktop application for Windows, Mac, and Linux, with a native menu and no terminal required
 

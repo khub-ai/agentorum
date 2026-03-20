@@ -949,6 +949,61 @@ async function handleRequest(req, res) {
     });
   }
 
+  // --- /api/export --- Download chatlog as a self-contained HTML file ---
+  if (pathname === '/api/export' && method === 'GET') {
+    if (!activeConfigPath) return jsonResp(res, { error: 'no active session' }, 404);
+    try {
+      const raw     = await fsp.readFile(config.chatlog, 'utf8').catch(() => '');
+      const entries = parseEntries(raw);
+      const sessionDir  = path.dirname(activeConfigPath);
+      const sessionName = path.basename(sessionDir);
+      const projectName = path.basename(path.dirname(path.dirname(sessionDir)));
+      const exportedAt  = new Date().toLocaleString();
+
+      const rows = entries.map(e => {
+        const body = e.body
+          .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+          .replace(/\n/g, '<br>');
+        return `<div class="entry">
+          <div class="entry-header"><span class="author">${e.author}</span><span class="ts">${e.timestamp}</span></div>
+          <div class="entry-body">${body}</div>
+        </div>`;
+      }).join('\n');
+
+      const html = `<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>${projectName} — ${sessionName}</title>
+<style>
+body{font-family:system-ui,sans-serif;max-width:820px;margin:40px auto;padding:0 20px;background:#0f1117;color:#e2e8f0}
+h1{font-size:20px;font-weight:700;margin-bottom:4px}
+.meta{font-size:12px;color:#64748b;margin-bottom:32px}
+.entry{border:1px solid #1e293b;border-radius:8px;padding:14px 16px;margin-bottom:12px;background:#1e293b}
+.entry-header{display:flex;align-items:baseline;gap:12px;margin-bottom:8px}
+.author{font-size:12px;font-weight:700;color:#60a5fa;letter-spacing:.05em}
+.ts{font-size:11px;color:#475569}
+.entry-body{font-size:14px;line-height:1.6;white-space:pre-wrap}
+</style>
+</head>
+<body>
+<h1>${projectName} / ${sessionName}</h1>
+<div class="meta">Exported ${exportedAt} · ${entries.length} entries</div>
+${rows}
+</body>
+</html>`;
+
+      const filename = `${projectName}-${sessionName}.html`;
+      res.writeHead(200, {
+        'Content-Type': 'text/html; charset=utf-8',
+        'Content-Disposition': `attachment; filename="${filename}"`,
+      });
+      res.end(html);
+    } catch (err) {
+      return jsonResp(res, { error: err.message }, 500);
+    }
+  }
+
   // --- /api/summary --- GET returns current summary.md; PUT saves it ---
   if (pathname === '/api/summary') {
     if (!activeConfigPath) return jsonResp(res, { error: 'no active session' }, 404);

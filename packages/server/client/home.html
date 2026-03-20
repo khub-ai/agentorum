@@ -28,6 +28,7 @@
   <main id="home-main">
     <div id="projects-header">
       <h1 id="projects-title">Projects</h1>
+      <button id="btn-cleanup-projects" class="btn-ghost btn-sm" style="display:none" title="Delete all projects except the active one">🧹 Clean up inactive</button>
     </div>
     <div id="projects-grid">
       <!-- Populated by home.js -->
@@ -138,8 +139,16 @@
       <div id="sc-participants"><!-- rows added dynamically --></div>
       <button id="btn-sc-add-participant" class="btn-secondary btn-sm" style="margin-top:6px">+ Add Participant</button>
 
-      <label class="field-label" style="margin-top:12px" for="sc-rules">Shared rules <span class="optional">(shown to all agents)</span></label>
-      <textarea id="sc-rules" rows="4" placeholder="Guidelines and ground rules visible to all agents in this scenario."></textarea>
+      <div class="sc-section-divider"></div>
+
+      <label class="field-label">Automation Rules <span class="optional">(who triggers whom)</span></label>
+      <div id="sc-rules-list"><!-- rows added dynamically --></div>
+      <button id="btn-sc-add-rule" class="btn-secondary btn-sm" style="margin-top:6px">+ Add Rule</button>
+
+      <div class="sc-section-divider"></div>
+
+      <label class="field-label" for="sc-shared-rules">Shared instructions <span class="optional">(shown to all agents)</span></label>
+      <textarea id="sc-shared-rules" rows="4" placeholder="Guidelines and ground rules visible to all agents in this scenario."></textarea>
     </div>
     <div class="modal-footer">
       <button class="btn-secondary" data-close="modal-scenario-edit">Cancel</button>

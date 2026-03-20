@@ -160,8 +160,18 @@ label { display: flex; align-items: center; gap: 6px; cursor: pointer; }
 
 #search-input { width: 180px; }
 
-#btn-settings  { font-size: 16px; border: none; background: none; padding: 4px; }
+#btn-settings       { font-size: 16px; border: none; background: none; padding: 4px; }
 #btn-compose-toggle { font-size: 16px; border: none; background: none; padding: 4px; }
+#btn-summary        { font-size: 16px; border: none; background: none; padding: 4px; cursor: pointer; }
+#btn-export {
+  font-size: 16px;
+  color: var(--text-muted);
+  text-decoration: none;
+  padding: 4px;
+  border-radius: 4px;
+  transition: color 0.15s;
+}
+#btn-export:hover { color: var(--accent); }
 
 /* ---------------------------------------------------------------------------
    New-entry badge
@@ -967,8 +977,55 @@ label { display: flex; align-items: center; gap: 6px; cursor: pointer; }
 /* ---------------------------------------------------------------------------
    Responsive
    ------------------------------------------------------------------------- */
+/* ---------------------------------------------------------------------------
+   Responsive — tablet (≤860px): hide sidebars, full-width feed
+   ------------------------------------------------------------------------- */
 @media (max-width: 860px) {
   #layout { grid-template-columns: 1fr; }
   #sidebar, #agents-panel { display: none; }
   #compose-bar { left: 0; right: 0; }
+
+  /* Topbar: allow wrapping on small screens */
+  #topbar { flex-wrap: wrap; gap: 4px; padding: 0 10px; }
+  #topbar-left { gap: 6px; min-width: 0; flex: 1; }
+  #topbar-right { gap: 6px; }
+
+  /* Back link + logo stack more tightly */
+  #btn-back-home { padding: 4px 8px; font-size: 11px; }
+  #topbar-divider { display: none; }
+  #logo { font-size: 13px; }
+
+  /* Entries take full width */
+  .entry-card { padding: 10px 12px; }
+  .entry-header { font-size: 11px; }
+  .entry-body { font-size: 13px; }
+
+  /* Compose bar adjustments */
+  #compose-bar { padding: 10px; }
+  #compose-body { font-size: 13px; }
+}
+
+/* ---------------------------------------------------------------------------
+   Responsive — mobile (≤520px): compact everything further
+   ------------------------------------------------------------------------- */
+@media (max-width: 520px) {
+  #topbar { min-height: 44px; padding: 0 8px; }
+  #participant-pills { display: none; }
+  #search-input { width: 100px; font-size: 12px; }
+
+  .entry-card { border-radius: 6px; margin-bottom: 6px; }
+
+  /* Rate modal: full screen on mobile */
+  #rate-modal-inner {
+    width: 100%;
+    height: 100%;
+    border-radius: 0;
+    max-height: 100vh;
+  }
+  /* Summary modal: full screen on mobile */
+  #summary-modal-inner {
+    width: 100%;
+    height: 100%;
+    border-radius: 0;
+  }
 }

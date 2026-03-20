@@ -1347,3 +1347,45 @@ The `CLA_PAT` is needed because the bot writes to the `cla-signatures` branch (a
 ### 19.5 Corporate CLA (Future)
 
 The current CLA covers individual contributors only. When the project attracts contributions from organisations (corporations, universities), a **Corporate CLA (CCLA)** should be added alongside the individual CLA. The CCLA designates an authorised signatory at the organisation, and the organisation lists employees covered by the agreement. The CLA Assistant bot supports CCLA workflows; the setup is deferred until a corporate contribution materialises.
+
+---
+
+## 20. Workspace UI and Project Management
+
+### 20.1 Home Page (Projects Grid)
+
+The server root `/` serves `home.html` — a project management dashboard. Key elements:
+
+- **Projects grid** — cards showing scenario badge, active indicator, session count, last-active time, and a ▶ Resume or + Session action button
+- **▶ Resume button** — appears in the topbar when a session is currently active; navigates directly to `/session`
+- **Active project card** — highlighted with a green left-border; click navigates directly to `/session` without an intermediate panel
+- **Sessions panel** — slides in from the right when a non-active project card is clicked; lists sessions with Open/Resume buttons
+- **🧹 Clean up inactive** — appears in the projects header when 2+ inactive projects exist; deletes all non-active projects in one confirmation
+
+### 20.2 Session Continuity
+
+`workspace.json` in `~/.agentorum/` stores `lastSession: { projectId, sessionId }`. On server startup without `--bundle`, the server reads this file and restores the last active session automatically — the user just runs `npm start`.
+
+When a session is opened from the Projects page (`POST /api/sessions/:pid/:sid/open`), the server: stops any running agents, reloads the config, refreshes the session token, regenerates interactive agents' `rules-*.txt` files with the current token, restarts the chatlog watcher, and broadcasts the updated config to connected clients.
+
+### 20.3 Summary Checkpoint
+
+The 📋 button in the session topbar opens a modal editor for `summary.md` in the session directory. Agents' rules files instruct them to read `summary.md` first if it exists, before scanning the last 50 entries of the chatlog. This keeps context cost bounded as sessions grow.
+
+API: `GET /api/summary` returns `{ content }`, `PUT /api/summary` with `{ content }` saves the file.
+
+### 20.4 Session Export
+
+The ⬇ button in the session topbar triggers `GET /api/export`, which returns a self-contained HTML file with all chatlog entries rendered in a dark-themed layout. The file is suitable for sharing with stakeholders not running Agentorum. Filename: `{project}-{session}.html`.
+
+### 20.5 Scenario Editor
+
+The Scenarios button in the home topbar opens a modal listing all built-in and user-created scenarios. User scenarios (stored in `~/.agentorum/scenarios/`) can be edited and deleted; built-in scenarios are read-only.
+
+The New Scenario form collects:
+- ID (slug), display name, icon (emoji), description
+- Participants: ID, label, mode (human / interactive / watcher), system prompt (expandable per participant)
+- Automation rules: "When [author] posts → notify [agent]" pairs
+- Shared instructions visible to all agents
+
+Saved via `POST /api/scenarios`; deleted via `DELETE /api/scenarios/:id`.

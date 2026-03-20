@@ -163,6 +163,9 @@ textarea { resize: vertical; }
 }
 
 #projects-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
   margin-bottom: 20px;
 }
 #projects-title {
@@ -844,3 +847,43 @@ textarea { resize: vertical; }
 }
 .sc-participant-row input { flex: 1; min-width: 0; }
 .sc-participant-row select { flex-shrink: 0; width: 120px; }
+
+/* Participant editor cards (expanded with system prompt) */
+.sc-participant-card {
+  background: var(--bg-sidebar);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 8px 10px;
+  margin-bottom: 6px;
+}
+.sc-prompt-toggle { font-size: 11px; flex-shrink: 0; }
+.sc-p-prompt-row { margin-top: 6px; }
+.sc-p-prompt-row textarea {
+  width: 100%;
+  box-sizing: border-box;
+  font-size: 12px;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  color: var(--text);
+  padding: 6px 8px;
+  resize: vertical;
+  font-family: var(--font-mono, monospace);
+}
+
+/* Automation rule rows */
+.sc-rule-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 6px;
+  background: var(--bg-sidebar);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 7px 10px;
+}
+.sc-rule-row input { flex: 1; min-width: 0; }
+.sc-rule-label { font-size: 12px; color: var(--text-muted); white-space: nowrap; flex-shrink: 0; }
+
+/* Section divider inside modal body */
+.sc-section-divider { height: 1px; background: var(--border); margin: 14px 0; }

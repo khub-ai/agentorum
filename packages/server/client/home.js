@@ -88,6 +88,35 @@ function formatRelative(isoStr) {
 }
 
 // ---------------------------------------------------------------------------
+// Bulk cleanup
+// ---------------------------------------------------------------------------
+function updateCleanupButton() {
+  const btn      = document.getElementById('btn-cleanup-projects');
+  const inactive = projects.filter(p => p.id !== currentProjectId);
+  btn.style.display = inactive.length > 1 ? 'inline-flex' : 'none';
+  btn.textContent   = `🧹 Clean up ${inactive.length} inactive`;
+}
+
+document.getElementById('btn-cleanup-projects').addEventListener('click', async () => {
+  const inactive = projects.filter(p => p.id !== currentProjectId);
+  if (inactive.length === 0) return;
+  if (!confirm(`Delete ${inactive.length} inactive project${inactive.length !== 1 ? 's' : ''}?\n\nThis permanently removes their folders and all chatlog data. Cannot be undone.`)) return;
+
+  let deleted = 0;
+  for (const p of inactive) {
+    try {
+      await api(`/api/projects/${p.id}`, 'DELETE');
+      deleted++;
+    } catch { /* skip — error toast shown by api() */ }
+  }
+  projects = projects.filter(p => p.id === currentProjectId);
+  renderProjects();
+  updateResumeButton();
+  updateCleanupButton();
+  showSuccess(`Deleted ${deleted} inactive project${deleted !== 1 ? 's' : ''}.`);
+});
+
+// ---------------------------------------------------------------------------
 // Inline rename helper
 // ---------------------------------------------------------------------------
 function startRename({ currentName, onSave }) {
@@ -572,17 +601,20 @@ function openScenarioEditor(scenario) {
   editingScenarioId = scenario ? scenario.id : null;
   document.getElementById('modal-scenario-edit-title').textContent =
     scenario ? `Edit Scenario: ${scenario.name || scenario.id}` : 'New Scenario';
-  document.getElementById('sc-id').value          = scenario?.id          || '';
-  document.getElementById('sc-id').disabled       = !!scenario; // can't change ID on edit
-  document.getElementById('sc-name').value        = scenario?.name        || '';
-  document.getElementById('sc-icon').value        = scenario?.icon        || '';
-  document.getElementById('sc-description').value = scenario?.description || '';
-  document.getElementById('sc-rules').value       = scenario?.sessionTemplate?.rules || '';
+  document.getElementById('sc-id').value           = scenario?.id          || '';
+  document.getElementById('sc-id').disabled        = !!scenario; // can't change ID on edit
+  document.getElementById('sc-name').value         = scenario?.name        || '';
+  document.getElementById('sc-icon').value         = scenario?.icon        || '';
+  document.getElementById('sc-description').value  = scenario?.description || '';
+  document.getElementById('sc-shared-rules').value = scenario?.sessionTemplate?.rules || '';
 
   // Render participant rows
   renderParticipantRows(scenario?.participants || [
-    { id: 'HUMAN', label: 'Human', mode: 'human', role: '' }
+    { id: 'HUMAN', label: 'Human', mode: 'human' }
   ]);
+
+  // Render automation rule rows
+  renderRuleRows(scenario?.automationRules || []);
 
   closeModal('modal-scenarios');
   showModal('modal-scenario-edit');
@@ -598,22 +630,79 @@ function renderParticipantRows(participants) {
 function appendParticipantRow(p = {}) {
   const container = document.getElementById('sc-participants');
   const row = document.createElement('div');
-  row.className = 'sc-participant-row';
+  row.className = 'sc-participant-card';
+  const isHuman = p.mode === 'human';
   row.innerHTML = `
-    <input class="sc-p-id"   type="text" placeholder="ID (e.g. CLAUDE-DEV)" value="${escHtml(p.id || '')}">
-    <input class="sc-p-label" type="text" placeholder="Display name"        value="${escHtml(p.label || '')}">
-    <select class="sc-p-mode">
-      <option value="human"       ${p.mode === 'human'       ? 'selected' : ''}>human</option>
-      <option value="interactive" ${p.mode === 'interactive' ? 'selected' : ''}>interactive</option>
-      <option value="watcher"     ${(!p.mode || p.mode === 'watcher') && p.mode !== 'human' && p.mode !== 'interactive' ? 'selected' : ''}>watcher</option>
-    </select>
-    <button class="btn-sc-remove-p btn-ghost btn-icon" title="Remove">✕</button>
+    <div class="sc-participant-row">
+      <input class="sc-p-id"    type="text" placeholder="ID (e.g. CLAUDE-DEV)" value="${escHtml(p.id || '')}">
+      <input class="sc-p-label" type="text" placeholder="Display name"         value="${escHtml(p.label || '')}">
+      <select class="sc-p-mode">
+        <option value="human"       ${p.mode === 'human'       ? 'selected' : ''}>human</option>
+        <option value="interactive" ${p.mode === 'interactive' ? 'selected' : ''}>interactive</option>
+        <option value="watcher"     ${!p.mode || (p.mode !== 'human' && p.mode !== 'interactive') ? 'selected' : ''}>watcher</option>
+      </select>
+      <button class="btn-sc-toggle-prompt btn-ghost btn-sm sc-prompt-toggle" title="System prompt">▸ Prompt</button>
+      <button class="btn-sc-remove-p btn-ghost btn-icon" title="Remove">✕</button>
+    </div>
+    <div class="sc-p-prompt-row" style="display:${isHuman ? 'none' : 'none'}">
+      <textarea class="sc-p-systemprompt" rows="3" placeholder="System prompt for this agent — its identity, role, and instructions.">${escHtml(p.systemPrompt || '')}</textarea>
+    </div>
   `;
+  const toggleBtn   = row.querySelector('.btn-sc-toggle-prompt');
+  const promptRow   = row.querySelector('.sc-p-prompt-row');
+  const modeSelect  = row.querySelector('.sc-p-mode');
+
+  toggleBtn.addEventListener('click', () => {
+    const open = promptRow.style.display === 'block';
+    promptRow.style.display = open ? 'none' : 'block';
+    toggleBtn.textContent   = open ? '▸ Prompt' : '▾ Prompt';
+  });
+
+  // Hide prompt toggle for human participants
+  modeSelect.addEventListener('change', () => {
+    const hide = modeSelect.value === 'human';
+    toggleBtn.style.display = hide ? 'none' : '';
+    if (hide) promptRow.style.display = 'none';
+  });
+  toggleBtn.style.display = modeSelect.value === 'human' ? 'none' : '';
+
+  // Auto-expand if participant already has a system prompt
+  if (p.systemPrompt) {
+    promptRow.style.display = 'block';
+    toggleBtn.textContent   = '▾ Prompt';
+  }
+
   row.querySelector('.btn-sc-remove-p').addEventListener('click', () => row.remove());
   container.appendChild(row);
 }
 
 document.getElementById('btn-sc-add-participant').addEventListener('click', () => appendParticipantRow());
+
+// ---------------------------------------------------------------------------
+// Automation rules editor
+// ---------------------------------------------------------------------------
+function renderRuleRows(rules) {
+  const container = document.getElementById('sc-rules-list');
+  container.innerHTML = '';
+  for (const rule of rules) appendRuleRow(rule);
+}
+
+function appendRuleRow(rule = {}) {
+  const container = document.getElementById('sc-rules-list');
+  const row = document.createElement('div');
+  row.className = 'sc-rule-row';
+  row.innerHTML = `
+    <span class="sc-rule-label">When</span>
+    <input class="sc-r-trigger" type="text" placeholder="author ID" value="${escHtml(rule.trigger?.author || '')}">
+    <span class="sc-rule-label">posts → notify</span>
+    <input class="sc-r-agent"   type="text" placeholder="agent ID"  value="${escHtml(rule.action?.agentId || '')}">
+    <button class="btn-sc-remove-rule btn-ghost btn-icon" title="Remove rule">✕</button>
+  `;
+  row.querySelector('.btn-sc-remove-rule').addEventListener('click', () => row.remove());
+  container.appendChild(row);
+}
+
+document.getElementById('btn-sc-add-rule').addEventListener('click', () => appendRuleRow());
 
 document.getElementById('btn-sc-save').addEventListener('click', async () => {
   const id   = document.getElementById('sc-id').value.trim();
@@ -623,22 +712,37 @@ document.getElementById('btn-sc-save').addEventListener('click', async () => {
     return;
   }
 
-  const pRows = document.querySelectorAll('#sc-participants .sc-participant-row');
-  const participants = Array.from(pRows).map(row => ({
-    id:    row.querySelector('.sc-p-id').value.trim(),
-    label: row.querySelector('.sc-p-label').value.trim(),
-    mode:  row.querySelector('.sc-p-mode').value,
-    role:  ''
-  })).filter(p => p.id);
+  const pCards = document.querySelectorAll('#sc-participants .sc-participant-card');
+  const participants = Array.from(pCards).map(card => {
+    const pid    = card.querySelector('.sc-p-id').value.trim();
+    const label  = card.querySelector('.sc-p-label').value.trim();
+    const mode   = card.querySelector('.sc-p-mode').value;
+    const prompt = card.querySelector('.sc-p-systemprompt').value.trim();
+    return pid ? { id: pid, label, mode, ...(prompt ? { systemPrompt: prompt } : {}) } : null;
+  }).filter(Boolean);
 
-  const rulesText = document.getElementById('sc-rules').value.trim();
+  const rRows = document.querySelectorAll('#sc-rules-list .sc-rule-row');
+  const automationRules = Array.from(rRows).map((row, i) => {
+    const triggerAuthor = row.querySelector('.sc-r-trigger').value.trim();
+    const agentId       = row.querySelector('.sc-r-agent').value.trim();
+    if (!triggerAuthor || !agentId) return null;
+    return {
+      id:      `rule-${i + 1}`,
+      enabled: true,
+      label:   `${triggerAuthor} posts → notify ${agentId}`,
+      trigger: { type: 'entry_from', author: triggerAuthor },
+      action:  { type: 'trigger_agent', agentId }
+    };
+  }).filter(Boolean);
+
+  const rulesText = document.getElementById('sc-shared-rules').value.trim();
   const scenario = {
     id,
     name,
     icon:          document.getElementById('sc-icon').value.trim() || undefined,
     description:   document.getElementById('sc-description').value.trim() || undefined,
     participants,
-    automationRules: [],
+    automationRules,
     sessionTemplate: rulesText ? { namePrefix: name, rules: rulesText } : { namePrefix: name }
   };
 
@@ -768,6 +872,7 @@ async function confirmDeleteProject(project) {
     if (activeProject && activeProject.id === project.id) closeSessionsPanel();
     renderProjects();
     updateResumeButton();
+    updateCleanupButton();
     showSuccess(`"${project.name}" deleted.`);
   } catch { /* error shown by api() */ }
 }
@@ -813,6 +918,7 @@ async function init() {
 
     renderProjects();
     updateResumeButton();
+    updateCleanupButton();
   } finally {
     setLoading(false);
   }
