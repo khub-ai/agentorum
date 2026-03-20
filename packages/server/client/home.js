@@ -88,6 +88,15 @@ function formatRelative(isoStr) {
 }
 
 // ---------------------------------------------------------------------------
+// Inline rename helper
+// ---------------------------------------------------------------------------
+function startRename({ currentName, onSave }) {
+  const newName = window.prompt('New name:', currentName);
+  if (!newName || !newName.trim() || newName.trim() === currentName) return;
+  onSave(newName.trim()).catch(err => showError(err.message));
+}
+
+// ---------------------------------------------------------------------------
 // Topbar: Resume button
 // ---------------------------------------------------------------------------
 function updateResumeButton() {
@@ -149,7 +158,10 @@ function renderProjects() {
         <button class="btn-delete-project btn-ghost btn-icon" title="Delete project" data-project-id="${project.id}">🗑</button>
       </div>
       <div class="project-card-body">
-        <h3 class="project-name">${escHtml(project.name)}</h3>
+        <h3 class="project-name">
+          ${escHtml(project.name)}
+          <button class="btn-rename btn-ghost btn-icon" title="Rename project" data-type="project" data-id="${project.id}" data-current="${escHtml(project.name)}">✏</button>
+        </h3>
         ${project.description ? `<p class="project-desc">${escHtml(project.description)}</p>` : ''}
       </div>
       <div class="project-card-footer">
@@ -165,11 +177,28 @@ function renderProjects() {
       if (e.target.closest('.btn-new-session-card')) return;
       if (e.target.closest('.btn-delete-project')) return;
       if (e.target.closest('.btn-resume-card')) return; // <a> handles navigation
+      if (e.target.closest('.btn-rename')) return;
       if (isActive) {
         window.location.href = '/session';
       } else {
         openSessionsPanel(project);
       }
+    });
+
+    // Rename button on project card
+    card.querySelector('.btn-rename').addEventListener('click', (e) => {
+      e.stopPropagation();
+      const btn = e.currentTarget;
+      startRename({
+        currentName: btn.dataset.current,
+        onSave: async (newName) => {
+          await api(`/api/projects/${project.id}`, 'PATCH', { name: newName });
+          project.name = newName;
+          btn.dataset.current = newName;
+          btn.closest('.project-name').firstChild.textContent = newName + ' ';
+          updateResumeButton();
+        }
+      });
     });
 
     // "+ Session" button on card (only present for non-active projects)
@@ -264,6 +293,7 @@ function renderSessions() {
       <div class="session-row-main">
         <div class="session-row-header">
           <span class="session-name">${escHtml(session.name)}</span>
+          <button class="btn-rename btn-ghost btn-icon" title="Rename session" data-current="${escHtml(session.name)}">✏</button>
           ${badge}
           ${activePill}
         </div>
@@ -277,6 +307,20 @@ function renderSessions() {
 
     row.querySelector('.btn-open-session').addEventListener('click', () => {
       openSession(activeProject.id, session.id);
+    });
+
+    row.querySelector('.btn-rename').addEventListener('click', (e) => {
+      e.stopPropagation();
+      const btn = e.currentTarget;
+      startRename({
+        currentName: btn.dataset.current,
+        onSave: async (newName) => {
+          await api(`/api/sessions/${activeProject.id}/${session.id}`, 'PATCH', { name: newName });
+          session.name = newName;
+          btn.dataset.current = newName;
+          btn.closest('.session-row-header').querySelector('.session-name').textContent = newName;
+        }
+      });
     });
 
     list.appendChild(row);
@@ -460,6 +504,152 @@ document.getElementById('proj-name').addEventListener('keydown', (e) => {
 });
 document.getElementById('sess-name').addEventListener('keydown', (e) => {
   if (e.key === 'Enter') createSession();
+});
+
+// ---------------------------------------------------------------------------
+// Scenario manager
+// ---------------------------------------------------------------------------
+let editingScenarioId = null; // null = new, string = editing existing user scenario
+
+document.getElementById('btn-manage-scenarios').addEventListener('click', () => {
+  renderScenariosTable();
+  showModal('modal-scenarios');
+});
+
+function renderScenariosTable() {
+  const container = document.getElementById('scenarios-table');
+  container.innerHTML = '';
+
+  if (scenarios.length === 0) {
+    container.innerHTML = '<p style="color:var(--text-muted);font-size:13px">No scenarios found.</p>';
+    return;
+  }
+
+  const table = document.createElement('table');
+  table.className = 'sc-table';
+  table.innerHTML = `<thead><tr><th></th><th>ID</th><th>Name</th><th>Participants</th><th>Source</th><th></th></tr></thead>`;
+  const tbody = document.createElement('tbody');
+
+  for (const sc of scenarios) {
+    const tr = document.createElement('tr');
+    const participantCount = (sc.participants || []).length;
+    const isUser = sc._source === 'user';
+    tr.innerHTML = `
+      <td>${sc.icon || ''}</td>
+      <td><code>${escHtml(sc.id)}</code></td>
+      <td>${escHtml(sc.name || sc.id)}</td>
+      <td>${participantCount} participant${participantCount !== 1 ? 's' : ''}</td>
+      <td><span class="sc-source-badge sc-source-${sc._source || 'builtin'}">${sc._source || 'builtin'}</span></td>
+      <td class="sc-actions">
+        ${isUser ? `<button class="btn-sc-edit btn-ghost btn-sm" data-id="${escHtml(sc.id)}">Edit</button>` : ''}
+        ${isUser ? `<button class="btn-sc-delete btn-ghost btn-sm sc-delete" data-id="${escHtml(sc.id)}">Delete</button>` : ''}
+      </td>
+    `;
+    tbody.appendChild(tr);
+  }
+  table.appendChild(tbody);
+  container.appendChild(table);
+
+  container.querySelectorAll('.btn-sc-edit').forEach(btn => {
+    btn.addEventListener('click', () => openScenarioEditor(scenarios.find(s => s.id === btn.dataset.id)));
+  });
+  container.querySelectorAll('.btn-sc-delete').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      if (!confirm(`Delete scenario "${btn.dataset.id}"? Projects using it will keep their existing config.`)) return;
+      try {
+        await api(`/api/scenarios/${btn.dataset.id}`, 'DELETE');
+        scenarios = scenarios.filter(s => s.id !== btn.dataset.id);
+        renderScenariosTable();
+        showSuccess(`Scenario "${btn.dataset.id}" deleted.`);
+      } catch (err) { showError(err.message || 'Delete failed'); }
+    });
+  });
+}
+
+document.getElementById('btn-new-scenario').addEventListener('click', () => openScenarioEditor(null));
+
+function openScenarioEditor(scenario) {
+  editingScenarioId = scenario ? scenario.id : null;
+  document.getElementById('modal-scenario-edit-title').textContent =
+    scenario ? `Edit Scenario: ${scenario.name || scenario.id}` : 'New Scenario';
+  document.getElementById('sc-id').value          = scenario?.id          || '';
+  document.getElementById('sc-id').disabled       = !!scenario; // can't change ID on edit
+  document.getElementById('sc-name').value        = scenario?.name        || '';
+  document.getElementById('sc-icon').value        = scenario?.icon        || '';
+  document.getElementById('sc-description').value = scenario?.description || '';
+  document.getElementById('sc-rules').value       = scenario?.sessionTemplate?.rules || '';
+
+  // Render participant rows
+  renderParticipantRows(scenario?.participants || [
+    { id: 'HUMAN', label: 'Human', mode: 'human', role: '' }
+  ]);
+
+  closeModal('modal-scenarios');
+  showModal('modal-scenario-edit');
+  document.getElementById('sc-id').focus();
+}
+
+function renderParticipantRows(participants) {
+  const container = document.getElementById('sc-participants');
+  container.innerHTML = '';
+  for (const p of participants) appendParticipantRow(p);
+}
+
+function appendParticipantRow(p = {}) {
+  const container = document.getElementById('sc-participants');
+  const row = document.createElement('div');
+  row.className = 'sc-participant-row';
+  row.innerHTML = `
+    <input class="sc-p-id"   type="text" placeholder="ID (e.g. CLAUDE-DEV)" value="${escHtml(p.id || '')}">
+    <input class="sc-p-label" type="text" placeholder="Display name"        value="${escHtml(p.label || '')}">
+    <select class="sc-p-mode">
+      <option value="human"       ${p.mode === 'human'       ? 'selected' : ''}>human</option>
+      <option value="interactive" ${p.mode === 'interactive' ? 'selected' : ''}>interactive</option>
+      <option value="watcher"     ${(!p.mode || p.mode === 'watcher') && p.mode !== 'human' && p.mode !== 'interactive' ? 'selected' : ''}>watcher</option>
+    </select>
+    <button class="btn-sc-remove-p btn-ghost btn-icon" title="Remove">✕</button>
+  `;
+  row.querySelector('.btn-sc-remove-p').addEventListener('click', () => row.remove());
+  container.appendChild(row);
+}
+
+document.getElementById('btn-sc-add-participant').addEventListener('click', () => appendParticipantRow());
+
+document.getElementById('btn-sc-save').addEventListener('click', async () => {
+  const id   = document.getElementById('sc-id').value.trim();
+  const name = document.getElementById('sc-name').value.trim();
+  if (!id || !name) {
+    showError('Scenario ID and name are required.');
+    return;
+  }
+
+  const pRows = document.querySelectorAll('#sc-participants .sc-participant-row');
+  const participants = Array.from(pRows).map(row => ({
+    id:    row.querySelector('.sc-p-id').value.trim(),
+    label: row.querySelector('.sc-p-label').value.trim(),
+    mode:  row.querySelector('.sc-p-mode').value,
+    role:  ''
+  })).filter(p => p.id);
+
+  const rulesText = document.getElementById('sc-rules').value.trim();
+  const scenario = {
+    id,
+    name,
+    icon:          document.getElementById('sc-icon').value.trim() || undefined,
+    description:   document.getElementById('sc-description').value.trim() || undefined,
+    participants,
+    automationRules: [],
+    sessionTemplate: rulesText ? { namePrefix: name, rules: rulesText } : { namePrefix: name }
+  };
+
+  try {
+    await api('/api/scenarios', 'POST', scenario);
+    // Refresh local list
+    const fresh = await api('/api/scenarios').catch(() => null);
+    if (fresh) scenarios = fresh;
+    closeModal('modal-scenario-edit');
+    showSuccess(`Scenario "${name}" saved.`);
+  } catch (err) { showError(err.message || 'Save failed'); }
 });
 
 // ---------------------------------------------------------------------------

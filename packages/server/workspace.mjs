@@ -207,6 +207,18 @@ export class WorkspaceManager {
     return Array.from(scenarioMap.values());
   }
 
+  async saveUserScenario(scenario) {
+    if (!scenario || !scenario.id) throw new Error('Scenario must have an id');
+    const fileName = `${scenario.id}.scenario.json`;
+    await writeJson(path.join(this.scenariosDir, fileName), scenario);
+  }
+
+  async deleteUserScenario(scenarioId) {
+    const filePath = path.join(this.scenariosDir, `${scenarioId}.scenario.json`);
+    if (!existsSync(filePath)) throw new Error(`User scenario not found: ${scenarioId}`);
+    await fs.rm(filePath);
+  }
+
   async loadScenario(id) {
     const scenarios = await this.listScenarios();
     const scenario  = scenarios.find(s => s.id === id);
@@ -294,6 +306,24 @@ export class WorkspaceManager {
     } catch { /* ignore — non-fatal */ }
   }
 
+  async renameProject(projectId, newName) {
+    if (!newName || !newName.trim()) throw new Error('Name is required');
+    const projectFile = path.join(this.projectsDir, projectId, 'project.json');
+    const data = await readJson(projectFile);
+    data.name = newName.trim();
+    await writeJson(projectFile, data);
+    return data;
+  }
+
+  async renameSession(projectId, sessionId, newName) {
+    if (!newName || !newName.trim()) throw new Error('Name is required');
+    const sessionFile = path.join(this.projectsDir, projectId, 'sessions', sessionId, 'session.json');
+    const data = await readJson(sessionFile);
+    data.name = newName.trim();
+    await writeJson(sessionFile, data);
+    return data;
+  }
+
   async getProject(projectId) {
     const projectDir = path.join(this.projectsDir, projectId);
     const data       = await readJson(path.join(projectDir, 'project.json'));
@@ -324,8 +354,33 @@ export class WorkspaceManager {
 
     for (const id of ids) {
       try {
-        const sessionDir  = path.join(sessionsDir, id);
-        const data        = await readJson(path.join(sessionDir, 'session.json'));
+        const sessionDir    = path.join(sessionsDir, id);
+        const sessionFile   = path.join(sessionDir, 'session.json');
+        const configFile    = path.join(sessionDir, 'agentorum.config.json');
+        let data;
+
+        if (existsSync(sessionFile)) {
+          data = await readJson(sessionFile);
+        } else if (existsSync(configFile)) {
+          // Compatibility: session was created before workspace mode introduced
+          // session.json.  Synthesise metadata from what we have and persist it
+          // so future reads take the fast path.
+          let scenario = null;
+          try {
+            const cfg = await readJson(configFile);
+            scenario = cfg.scenario || cfg.id || null;
+          } catch { /* ignore */ }
+
+          const humanName = id
+            .replace(/-/g, ' ')
+            .replace(/\b\w/g, c => c.toUpperCase());
+          const now = new Date().toISOString();
+          data = { id, name: humanName, scenario, created: now, lastActive: now, overrides: {} };
+          await writeJson(sessionFile, data).catch(() => { /* non-fatal */ });
+        } else {
+          continue; // not a valid session directory
+        }
+
         const entryCount  = await countEntries(path.join(sessionDir, 'chatlog.md'));
         sessions.push({ ...data, id, entryCount });
       } catch { /* skip malformed */ }
@@ -398,6 +453,48 @@ export class WorkspaceManager {
     const sessionDir = path.join(this.projectsDir, projectId, 'sessions', sessionId);
     const data       = await readJson(path.join(sessionDir, 'session.json'));
     return { ...data, id: sessionId };
+  }
+
+  // Regenerate per-participant rules files for interactive participants.
+  // Called whenever a session is opened so stale tokens in the rules files
+  // are refreshed to match the current session token.
+  async regenerateRulesFiles(projectId, sessionId, port = 3737) {
+    const sessionDir  = path.join(this.projectsDir, projectId, 'sessions', sessionId);
+    const configPath  = path.join(sessionDir, 'agentorum.config.json');
+    const sessionFile = path.join(sessionDir, 'session.json');
+
+    let cfg, sessionData;
+    try { cfg         = await readJson(configPath); }  catch { return; } // no config — skip
+    try { sessionData = await readJson(sessionFile); }  catch { return; }
+
+    const token      = sessionData.token || null;
+    const sessionName = sessionData.name || sessionId;
+    const chatlogPath = cfg.chatlog || path.join(sessionDir, 'chatlog.md');
+
+    // Load shared rules text if referenced
+    let sharedRules = '';
+    if (cfg.rules) {
+      const rulesPath = path.isAbsolute(cfg.rules)
+        ? cfg.rules
+        : path.join(sessionDir, cfg.rules);
+      sharedRules = await fs.readFile(rulesPath, 'utf8').catch(() => '');
+    }
+
+    const interactive = (cfg.participants || []).filter(p => p.mode === 'interactive');
+    for (const p of interactive) {
+      const rulesFileName = `rules-${p.id}.txt`;
+      const rulesFilePath = path.join(sessionDir, rulesFileName);
+      const content = buildParticipantRules({
+        participant:  p,
+        sharedRules,
+        chatlogPath,
+        rulesFilePath,
+        token,
+        port,
+        sessionName
+      });
+      await fs.writeFile(rulesFilePath, content, 'utf8').catch(() => {});
+    }
   }
 
   async updateSessionLastActive(projectId, sessionId) {

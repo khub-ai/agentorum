@@ -1005,6 +1005,32 @@ document.getElementById('btn-cfg-save').addEventListener('click', async () => {
 });
 
 // ---------------------------------------------------------------------------
+// Summary modal
+// ---------------------------------------------------------------------------
+document.getElementById('btn-summary').addEventListener('click', async () => {
+  const data = await api('/api/summary');
+  document.getElementById('summary-body').value = data?.content || '';
+  document.getElementById('summary-modal').style.display = 'flex';
+  document.getElementById('summary-body').focus();
+});
+
+function closeSummaryModal() {
+  document.getElementById('summary-modal').style.display = 'none';
+}
+
+document.getElementById('btn-summary-close').addEventListener('click', closeSummaryModal);
+document.getElementById('btn-summary-cancel').addEventListener('click', closeSummaryModal);
+document.getElementById('summary-modal').addEventListener('click', (e) => {
+  if (e.target === e.currentTarget) closeSummaryModal();
+});
+
+document.getElementById('btn-summary-save').addEventListener('click', async () => {
+  const content = document.getElementById('summary-body').value;
+  await api('/api/summary', 'PUT', { content });
+  closeSummaryModal();
+});
+
+// ---------------------------------------------------------------------------
 // API helper
 // ---------------------------------------------------------------------------
 async function api(path, method = 'GET', body = null) {

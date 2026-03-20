@@ -15,6 +15,7 @@
     <span id="workspace-name"></span>
   </div>
   <div id="home-topbar-right">
+    <button id="btn-manage-scenarios" class="btn-ghost">Scenarios</button>
     <button id="btn-load-bundle" class="btn-ghost">Load Bundle</button>
     <button id="btn-new-project" class="btn-primary">+ New Project</button>
   </div>
@@ -95,6 +96,57 @@
 
 <!-- ── Hidden file input for bundle loading ─────────────────────────────── -->
 <input id="bundle-file-input" type="file" accept=".json" style="display:none">
+
+<!-- ── Scenarios manager modal ──────────────────────────────────────────── -->
+<div id="modal-scenarios" class="modal-overlay" style="display:none" role="dialog" aria-modal="true" aria-labelledby="modal-scenarios-title">
+  <div class="modal-box modal-box-wide">
+    <div class="modal-header">
+      <h2 id="modal-scenarios-title">Scenarios</h2>
+      <button class="modal-close" data-close="modal-scenarios">✕</button>
+    </div>
+    <div class="modal-body">
+      <div id="scenarios-list-header">
+        <span class="field-hint">Built-in and user-created scenarios. User scenarios override built-ins with the same ID.</span>
+        <button id="btn-new-scenario" class="btn-primary btn-sm">+ New Scenario</button>
+      </div>
+      <div id="scenarios-table"><!-- populated by home.js --></div>
+    </div>
+  </div>
+</div>
+
+<!-- ── Scenario editor modal ─────────────────────────────────────────────── -->
+<div id="modal-scenario-edit" class="modal-overlay" style="display:none" role="dialog" aria-modal="true" aria-labelledby="modal-scenario-edit-title">
+  <div class="modal-box modal-box-wide">
+    <div class="modal-header">
+      <h2 id="modal-scenario-edit-title">New Scenario</h2>
+      <button class="modal-close" data-close="modal-scenario-edit">✕</button>
+    </div>
+    <div class="modal-body">
+      <label class="field-label" for="sc-id">ID <span class="required">*</span> <span class="field-hint">(slug, e.g. code-review)</span></label>
+      <input id="sc-id" type="text" placeholder="code-review" autocomplete="off">
+
+      <label class="field-label" for="sc-name">Display name <span class="required">*</span></label>
+      <input id="sc-name" type="text" placeholder="Code Review" autocomplete="off">
+
+      <label class="field-label" for="sc-icon">Icon <span class="optional">(emoji)</span></label>
+      <input id="sc-icon" type="text" placeholder="🔍" style="width:80px">
+
+      <label class="field-label" for="sc-description">Description</label>
+      <textarea id="sc-description" rows="2" placeholder="What kind of debate does this scenario host?"></textarea>
+
+      <label class="field-label">Participants</label>
+      <div id="sc-participants"><!-- rows added dynamically --></div>
+      <button id="btn-sc-add-participant" class="btn-secondary btn-sm" style="margin-top:6px">+ Add Participant</button>
+
+      <label class="field-label" style="margin-top:12px" for="sc-rules">Shared rules <span class="optional">(shown to all agents)</span></label>
+      <textarea id="sc-rules" rows="4" placeholder="Guidelines and ground rules visible to all agents in this scenario."></textarea>
+    </div>
+    <div class="modal-footer">
+      <button class="btn-secondary" data-close="modal-scenario-edit">Cancel</button>
+      <button id="btn-sc-save" class="btn-primary">Save Scenario</button>
+    </div>
+  </div>
+</div>
 
 <!-- ── New Project modal ────────────────────────────────────────────────── -->
 <div id="modal-project" class="modal-overlay" style="display:none" role="dialog" aria-modal="true" aria-labelledby="modal-project-title">

@@ -18,6 +18,7 @@
   </div>
   <div id="topbar-right">
     <input id="search-input" type="search" placeholder="Search…" autocomplete="off">
+    <button id="btn-summary" title="Session summary">📋</button>
     <button id="btn-compose-toggle" title="New entry">✏️</button>
     <button id="btn-settings" title="Settings">⚙</button>
   </div>
@@ -153,6 +154,22 @@
         <button id="btn-init-show-again" title="Re-open this dialog from the Agents panel">Show again later</button>
         <button id="btn-init-done" class="btn-primary">✓ Done — start the session</button>
       </div>
+    </div>
+  </div>
+</div>
+
+<!-- ── Summary modal ────────────────────────────────────────────────────── -->
+<div id="summary-modal" style="display:none">
+  <div id="summary-modal-inner">
+    <div id="summary-modal-header">
+      <span>📋 Session Summary</span>
+      <button id="btn-summary-close">✕</button>
+    </div>
+    <p id="summary-hint">Agents read <code>summary.md</code> before the chatlog. Keep it concise — it replaces historical context for long sessions.</p>
+    <textarea id="summary-body" rows="16" placeholder="Write a summary of the session so far. Agents will read this first to understand the history without scanning the full chatlog."></textarea>
+    <div id="summary-actions">
+      <button id="btn-summary-save" class="btn-primary">Save</button>
+      <button id="btn-summary-cancel">Cancel</button>
     </div>
   </div>
 </div>

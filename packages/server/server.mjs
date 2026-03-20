@@ -591,12 +591,35 @@ async function handleRequest(req, res) {
       }
     }
 
-    // GET /api/scenarios
-    if (pathname === '/api/scenarios' && method === 'GET') {
+    // GET /api/scenarios   POST /api/scenarios (save user scenario)
+    if (pathname === '/api/scenarios') {
+      if (method === 'GET') {
+        try {
+          return jsonResp(res, await workspaceManager.listScenarios());
+        } catch (err) {
+          return jsonResp(res, { error: err.message }, 500);
+        }
+      }
+      if (method === 'POST') {
+        try {
+          const scenario = JSON.parse(await readBody(req));
+          await workspaceManager.saveUserScenario(scenario);
+          return jsonResp(res, { ok: true }, 201);
+        } catch (err) {
+          return jsonResp(res, { error: err.message }, 400);
+        }
+      }
+    }
+
+    // DELETE /api/scenarios/:id  (user scenarios only)
+    const scMatch = pathname.match(/^\/api\/scenarios\/([^/]+)$/);
+    if (scMatch && method === 'DELETE') {
+      const [, scenarioId] = scMatch;
       try {
-        return jsonResp(res, await workspaceManager.listScenarios());
+        await workspaceManager.deleteUserScenario(scenarioId);
+        return jsonResp(res, { ok: true });
       } catch (err) {
-        return jsonResp(res, { error: err.message }, 500);
+        return jsonResp(res, { error: err.message }, 400);
       }
     }
 
@@ -648,6 +671,18 @@ async function handleRequest(req, res) {
       }
     }
 
+    // PATCH /api/projects/:projectId  (rename)
+    if (projectMatch && method === 'PATCH') {
+      const [, projectId] = projectMatch;
+      try {
+        const { name } = JSON.parse(await readBody(req));
+        const data = await workspaceManager.renameProject(projectId, name);
+        return jsonResp(res, data);
+      } catch (err) {
+        return jsonResp(res, { error: err.message }, 400);
+      }
+    }
+
     // GET /api/projects/:projectId/sessions
     const sessionsListMatch = pathname.match(/^\/api\/projects\/([^/]+)\/sessions$/);
     if (sessionsListMatch && method === 'GET') {
@@ -666,6 +701,19 @@ async function handleRequest(req, res) {
         const body   = JSON.parse(await readBody(req));
         const result = await workspaceManager.createSession(projectId, body);
         return jsonResp(res, result, 201);
+      } catch (err) {
+        return jsonResp(res, { error: err.message }, 400);
+      }
+    }
+
+    // PATCH /api/sessions/:projectId/:sessionId  (rename)
+    const sessionMatch = pathname.match(/^\/api\/sessions\/([^/]+)\/([^/]+)$/);
+    if (sessionMatch && method === 'PATCH') {
+      const [, projectId, sessionId] = sessionMatch;
+      try {
+        const { name } = JSON.parse(await readBody(req));
+        const data = await workspaceManager.renameSession(projectId, sessionId, name);
+        return jsonResp(res, data);
       } catch (err) {
         return jsonResp(res, { error: err.message }, 400);
       }
@@ -695,6 +743,9 @@ async function handleRequest(req, res) {
 
         // Broadcast updated config to connected clients
         broadcast({ type: 'config_updated', config });
+
+        // Refresh interactive agents' rules files with the current session token
+        await workspaceManager.regenerateRulesFiles(projectId, sessionId, PORT);
 
         // Update session lastActive and persist as the last-used session
         await workspaceManager.updateSessionLastActive(projectId, sessionId);
@@ -896,6 +947,26 @@ async function handleRequest(req, res) {
       apiEndpoint:  `http://localhost:${config.port || 3737}/api/entries`,
       token:         activeSessionToken
     });
+  }
+
+  // --- /api/summary --- GET returns current summary.md; PUT saves it ---
+  if (pathname === '/api/summary') {
+    if (!activeConfigPath) return jsonResp(res, { error: 'no active session' }, 404);
+    const summaryPath = path.join(path.dirname(activeConfigPath), 'summary.md');
+    if (method === 'GET') {
+      try {
+        const content = await fsp.readFile(summaryPath, 'utf8');
+        return jsonResp(res, { content });
+      } catch {
+        return jsonResp(res, { content: '' });
+      }
+    }
+    if (method === 'PUT') {
+      const { content } = JSON.parse(await readBody(req));
+      if (typeof content !== 'string') return jsonResp(res, { error: 'content required' }, 400);
+      await fsp.writeFile(summaryPath, content, 'utf8');
+      return jsonResp(res, { ok: true });
+    }
   }
 
   // --- /api/participants ---

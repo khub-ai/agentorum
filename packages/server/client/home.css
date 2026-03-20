@@ -743,6 +743,25 @@ textarea { resize: vertical; }
 }
 
 /* ---------------------------------------------------------------------------
+   Rename button (pencil) — appears on hover of project name / session row
+   ------------------------------------------------------------------------- */
+.btn-rename {
+  background: transparent;
+  border: none;
+  color: var(--text-muted);
+  font-size: 11px;
+  padding: 1px 4px;
+  border-radius: 4px;
+  opacity: 0;
+  transition: opacity 0.15s, color 0.15s;
+  vertical-align: middle;
+  cursor: pointer;
+}
+.project-name:hover .btn-rename,
+.session-row-header:hover .btn-rename { opacity: 1; }
+.btn-rename:hover { color: var(--accent); }
+
+/* ---------------------------------------------------------------------------
    Delete button on project cards
    ------------------------------------------------------------------------- */
 .btn-delete-project {
@@ -768,3 +787,60 @@ textarea { resize: vertical; }
   line-height: 1;
   cursor: pointer;
 }
+
+/* ---------------------------------------------------------------------------
+   Scenario manager
+   ------------------------------------------------------------------------- */
+.modal-box-wide { width: min(780px, 96vw); }
+
+#scenarios-list-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 14px;
+}
+
+.sc-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+.sc-table th {
+  text-align: left;
+  padding: 6px 10px;
+  font-weight: 600;
+  color: var(--text-muted);
+  border-bottom: 1px solid var(--border);
+}
+.sc-table td {
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--border);
+  vertical-align: middle;
+}
+.sc-table code {
+  font-size: 11px;
+  background: var(--bg-sidebar);
+  padding: 1px 5px;
+  border-radius: 3px;
+}
+.sc-source-badge {
+  font-size: 10px;
+  font-weight: 600;
+  padding: 2px 7px;
+  border-radius: 10px;
+  text-transform: uppercase;
+}
+.sc-source-builtin { background: rgba(37,99,235,.15); color: #2563eb; }
+.sc-source-user    { background: rgba(22,163,74,.15);  color: #16a34a; }
+.sc-delete { color: #dc2626 !important; }
+.sc-actions { white-space: nowrap; }
+
+/* Participant editor rows */
+.sc-participant-row {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  margin-bottom: 6px;
+}
+.sc-participant-row input { flex: 1; min-width: 0; }
+.sc-participant-row select { flex-shrink: 0; width: 120px; }
