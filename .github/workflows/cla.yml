@@ -1,0 +1,43 @@
+name: CLA Check
+
+# Runs on every pull request and on PR comments (so contributors can sign
+# by posting the magic phrase without closing and reopening the PR).
+on:
+  issue_comment:
+    types: [created]
+  pull_request_target:
+    types: [opened, closed, synchronize]
+
+permissions:
+  actions: write
+  contents: write
+  pull-requests: write
+  statuses: write
+
+jobs:
+  cla-check:
+    runs-on: ubuntu-latest
+    steps:
+      - name: CLA Assistant
+        # contributor-assistant/github-action stores signatures as a JSON
+        # file in the 'cla-signatures' branch of this repo.
+        uses: contributor-assistant/github-action@v2.6.1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # A Personal Access Token is required so the action can commit
+          # the signatures file.  Create a fine-grained PAT with
+          # "Contents: Read and write" on this repo, then add it as a
+          # repository secret named CLA_PAT.
+          # See: https://github.com/settings/tokens
+          PERSONAL_ACCESS_TOKEN: ${{ secrets.CLA_PAT }}
+        with:
+          # Where to store the list of signatories (committed automatically)
+          path-to-signatures: 'signatures/cla-signatures.json'
+          # Branch that holds the signatures file
+          branch: 'cla-signatures'
+          # Link to the CLA document contributors will be asked to read
+          path-to-document: 'https://github.com/khub-ai/agentorum/blob/main/CLA.md'
+          # Exact phrase the contributor must post to sign
+          sign-comment: 'I have read the CLA Document and I hereby sign the CLA'
+          # Bots and the repo owner never need to sign
+          allowlist: bot*,khub-ai
