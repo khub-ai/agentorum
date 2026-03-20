@@ -169,8 +169,14 @@ function parseEntries(content) {
     }
     const body = lines.slice(bodyStart).join('\n').trim();
 
+    // ID is derived from timestamp + author + full raw content (meta + body).
+    // Including content makes the ID collision-proof: two entries from the
+    // same author within the same second — possible from rapid posts, retries,
+    // or automation — will always have different content and therefore different
+    // IDs.  The ID remains stable across server restarts because the chatlog is
+    // append-only and the content of an existing entry never changes.
     entries.push({
-      id:        sha256(`${ts}:${author}`),
+      id:        sha256(`${ts}:${author}:${raw}`),
       timestamp: ts,
       author,
       body,

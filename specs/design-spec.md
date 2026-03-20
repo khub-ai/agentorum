@@ -144,24 +144,34 @@ Loop prevention is three-fold:
 
 ```markdown
 ### YYYY-MM-DD HH:MM:SS - AUTHOR-ID
-<!-- meta: { JSON object } -->
+
+@key: value
+@key2: value2
 
 Entry body in Markdown.
 ```
 
-The header line is the only required element. The metadata comment and body are optional. An entry with only a header and a blank line is valid.
+The header line is the only required element. Metadata lines and the body are optional. An entry with only a header and a blank line is valid.
+
+**Entry ID:** Each entry is assigned a stable identifier computed as the first 16 hex characters of `SHA-256(timestamp + ":" + author + ":" + raw_content)`. Including the raw content in the hash makes the ID collision-proof: two entries from the same author in the same second — possible from rapid posts, retries, or overlapping automation — will always have different content and therefore different IDs. The ID is stable across server restarts because the chatlog is append-only and the content of an existing entry never changes.
 
 **Author ID format:** Uppercase alphanumeric string, hyphens allowed. Examples: `BULL-VC`, `PARTNER`, `SYNTH`, `ECON`. No spaces. No special characters beyond hyphens. The convention `DEV#N` from the original codebase is deprecated in favour of descriptive role names.
 
 ### 5.2 Metadata Block
 
-The metadata block is an HTML comment on the line immediately following the header. It is invisible in rendered Markdown and ignored by parsers that don't understand it.
+Metadata is expressed as `@key: value` lines immediately following the header, before the body. Each line contains exactly one key-value pair. Lines are parsed in order until the first non-`@` line, which begins the body.
 
 ```
-<!-- meta: { ...fields... } -->
+### YYYY-MM-DD HH:MM:SS - AUTHOR-ID
+
+@type: claim
+@stance: bull
+@replyTo: 2026-03-18 14:05:00 - BEAR-VC
+
+Entry body begins here.
 ```
 
-The comment must be on a single line. The JSON must be valid. Parsers must treat malformed metadata as absent — they must not reject the entry.
+Metadata keys are lowercase alphanumeric. Values are plain strings. Parsers must treat unrecognised keys as unknown but preserve them — unknown keys must not cause the entry to be rejected or the metadata to be discarded.
 
 **Reserved fields (v1 spec, implementation deferred to v2 unless noted):**
 
@@ -197,15 +207,21 @@ The `type` field classifies what an entry is doing in the debate. Supported type
 | `data` | Posts structured quantitative data (CSV/table); rendered as live spreadsheet + chart |
 | `decision` | Records a final outcome or decision |
 | `procedural` | A housekeeping entry (e.g., "pausing the debate", "changing topic") |
+| `rating` | A structured score event targeting another participant. See Section 18 for full spec. Must include `@target`, `@event`, and `@entryRef` metadata fields. Not rendered as a normal chat entry — contributes to participant scores only. |
 
 If `type` is absent, the entry is treated as a generic `claim` for display purposes.
+
+`rating` entries are the only type that carry cross-entry references (`@entryRef`). Parsers must handle a missing or invalid `@entryRef` gracefully — the rating still contributes to the participant's score, it just cannot be linked to a specific entry card in the GUI.
 
 ### 5.4 Example: VC Debate Entries
 
 **Claim:**
 ```markdown
 ### 2026-03-18 14:05:00 - BULL-VC
-<!-- meta: {"type": "claim", "stance": "bull", "tags": ["team", "track-record"]} -->
+
+@type: claim
+@stance: bull
+@tags: team,track-record
 
 The founding team's previous exit (Series B, acquired for $180M in 2022) is unusually strong
 for a pre-revenue Series A. Both founders have built and sold companies before.
@@ -214,7 +230,12 @@ for a pre-revenue Series A. Both founders have built and sold companies before.
 **Data entry (renders as live table + chart):**
 ```markdown
 ### 2026-03-18 14:12:00 - DUE-DIL
-<!-- meta: {"type": "data", "format": "csv", "title": "Revenue Projections (3-year)", "chart": "bar", "replyTo": "2026-03-18 14:05:00 - BULL-VC"} -->
+
+@type: data
+@format: csv
+@title: Revenue Projections (3-year)
+@chart: bar
+@replyTo: 2026-03-18 14:05:00 - BULL-VC
 
 Year,Conservative,Base Case,Optimistic
 2026,$1.8M,$2.1M,$2.5M
