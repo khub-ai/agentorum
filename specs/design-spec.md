@@ -1479,3 +1479,25 @@ Each session row in the sessions panel shows an editable notes area below the se
 ### 23.5 Session Archive
 
 Sessions can be soft-archived (hidden from the default list without deletion) via a 🗂 button on each session row. Archiving sets `archived: true` in `session.json` via `PATCH /api/sessions/:pid/:sid/archive`. Archived sessions are excluded from `renderSessions()` by default; a "Show archived (N)" toggle at the bottom of the sessions panel reveals them. The active session cannot be archived.
+
+---
+
+## Section 24: Chatlog UX Enhancements
+
+### 24.1 Jump to Latest Button
+
+A floating "↓ Latest" pill (`#btn-jump-latest`) appears above the compose bar when the user has scrolled more than 300 px from the bottom of `#chatlog`. Clicking it smooth-scrolls to the most recent entry. The pill is hidden by default and shown/hidden via a `scroll` event listener on `#chatlog` (throttled to 100 ms).
+
+When a new entry arrives via WebSocket and the user is near the bottom (within 300 px), the chatlog auto-scrolls to the new entry. If the user is scrolled further up, the pill pulses briefly to indicate new content.
+
+### 24.2 Compose Textarea Auto-Resize
+
+The `#compose-body` textarea grows with its content up to a maximum height of 200 px. On each `input` event, the textarea's height is reset to `auto`, then set to `Math.min(scrollHeight, 200)` px. This removes the need to scroll inside the textarea for most entries. When the content is cleared (after posting), the textarea returns to its default single-row height.
+
+### 24.3 Entry Copy Button
+
+A 📋 icon button appears on hover in each entry card header. Clicking it copies the entry body text to the clipboard via `navigator.clipboard.writeText()` and briefly flashes ✓ as confirmation. Implemented as a delegated click handler on `#chatlog` matching `.btn-copy-entry`.
+
+### 24.4 Session Archive / Unarchive
+
+Each session row in the sessions panel shows a 🗂 archive button. Clicking it sets `archived: true` in `session.json` via `PATCH /api/sessions/:pid/:sid/archive` with `{ archived: true }`. Archived sessions are excluded from the default `renderSessions()` list. A "Show archived (N)" toggle link at the bottom of the sessions panel reveals them with a muted visual style. Clicking the archive button on an archived session unarchives it (`{ archived: false }`). The active session cannot be archived.
