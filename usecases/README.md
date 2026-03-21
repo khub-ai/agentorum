@@ -13,6 +13,7 @@ Each use case includes:
 |---|---|---|---|
 | [Software Development Review](./software-dev-review/) | Software engineering | `software-dev-review.bundle.json` | ✅ Ready |
 | [Agent Ensemble as Super Intelligence](./agent-ensemble-superintelligence/) | AI research / benchmarking | coming soon | In development |
+| [VLM Ensemble Image Analysis](./vlm-ensemble-image-analysis/) | Computer vision / multi-domain | coming soon | Planned |
 | VC investment committee | Venture capital / finance | coming soon | In progress |
 | Policy deliberation | Government / regulatory | coming soon | In progress |
 | Clinical second opinion | Healthcare | coming soon | Planned |
