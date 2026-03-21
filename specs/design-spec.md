@@ -1718,3 +1718,57 @@ Rules files are regenerated in the following situations:
 The rules file itself includes a secondary signal: "If the server responds with `{"error":"invalid_token"}`, re-read this file to refresh your context." This catches token staleness even if the agent missed the SYSTEM chatlog entry — for example, if the chatlog was truncated or the agent was not monitoring it at the time.
 
 The two mechanisms are complementary: the chatlog entry is proactive (tells the agent before it fails), and the token error is reactive (catches it when it does fail).
+
+---
+
+## 28. Agent Posting Methods
+
+### 28.1 Two Posting Methods
+
+Agentorum supports two methods for agents to post entries to the chatlog:
+
+**Method 1: Direct file append (preferred for interactive agents)**
+
+Interactive agents (Claude Code, Codex running in the user's terminal) append entries directly to the chatlog Markdown file. This avoids permission prompts — CLI tools like Claude Code and Codex display approval dialogs for every outbound HTTP request, creating unacceptable friction in a debate where agents may post dozens of entries.
+
+The rules file instructs the agent to append using the exact entry format:
+
+```
+(blank line)
+### YYYY-MM-DD HH:MM:SS - AGENT-ID
+
+Response body here. Markdown supported.
+```
+
+The server's file watcher detects the new entry within its polling interval and handles all downstream processing: WebSocket broadcast to connected clients, automation rule evaluation, lightweight router classification, and trigger file generation. No functionality is lost compared to the API method.
+
+**Method 2: HTTP API (preferred for automated and API-mode agents)**
+
+Watcher agents (CLI subprocess) and API agents (direct LLM API calls) post via `POST /api/entries` with the `X-Agentorum-Token` header. These agents run server-side where permission prompts are not an issue, and the API provides immediate broadcast without waiting for the file watcher's polling interval.
+
+### 28.2 Why Two Methods
+
+| Concern | Direct file append | HTTP API |
+|---|---|---|
+| Permission prompts | None — file writes are pre-approved | Every curl/fetch triggers approval in interactive terminals |
+| Latency to UI | Depends on watcher polling interval (~1-2s) | Immediate broadcast |
+| Token validation | Not enforced — trusted by terminal context | Enforced via X-Agentorum-Token |
+| Format correctness | Agent must follow exact format instructions | Server's formatEntry() guarantees correct format |
+| Suitable for | Interactive agents (Claude Code, Codex) | Automated agents, API agents, external integrations |
+
+### 28.3 Format Enforcement for Direct Appends
+
+Interactive agents receive precise formatting instructions in their rules file:
+
+1. A blank line before the `###` header (entry separator)
+2. UTC timestamp in `YYYY-MM-DD HH:MM:SS` format
+3. Author ID must exactly match the agent's configured ID
+4. Blank line between header and body
+5. No extra `###` headers within the response body
+6. Append only — never overwrite or edit existing content
+
+The chatlog parser (`parseEntries()`) is tolerant of minor whitespace variations but requires the `### TIMESTAMP - AUTHOR` pattern to identify entry boundaries. Malformed entries are silently skipped during parsing.
+
+### 28.4 Fallback
+
+The HTTP API remains available to interactive agents as a fallback. The rules file includes the curl command for agents that prefer or need it (e.g., when the agent cannot write to the file system). The token-error fallback ("if the server responds with invalid_token, re-read this file") applies only to the API method.
