@@ -245,7 +245,7 @@ label { display: flex; align-items: center; gap: 6px; cursor: pointer; }
   z-index: 90;
 }
 #compose-bar select    { width: 200px; }
-#compose-bar textarea  { width: 100%; resize: vertical; }
+#compose-bar textarea  { width: 100%; resize: none; overflow-y: hidden; min-height: 72px; max-height: 220px; transition: height 0.1s ease; }
 #compose-actions       { display: flex; gap: 8px; align-items: center; }
 #compose-preview       { padding: 8px; border: 1px solid var(--border); border-radius: var(--radius); background: var(--bg-card); }
 #btn-attach            { font-size: 16px; padding: 2px 4px; border: none; background: none; line-height: 1; }
@@ -1198,4 +1198,27 @@ label { display: flex; align-items: center; gap: 6px; cursor: pointer; }
   padding: 1px 6px;
   font-weight: 600;
   cursor: default;
+}
+
+/* Jump-to-latest floating button */
+#btn-jump-latest {
+  position: fixed;
+  bottom: calc(var(--compose-h, 0px) + 20px);
+  right: calc(var(--agents-w) + 20px);
+  z-index: 200;
+  background: var(--accent);
+  color: #fff;
+  border: none;
+  border-radius: 20px;
+  padding: 7px 16px;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.35);
+  transition: opacity 0.2s, transform 0.2s;
+  opacity: 0.92;
+}
+#btn-jump-latest:hover { opacity: 1; transform: translateY(-1px); }
+@media (max-width: 860px) {
+  #btn-jump-latest { right: 16px; }
 }

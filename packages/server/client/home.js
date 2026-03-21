@@ -299,28 +299,38 @@ async function loadSessions(projectId) {
   }
 }
 
+let showArchived = false;
+
 function renderSessions() {
   const list  = document.getElementById('sessions-list');
   const empty = document.getElementById('sessions-empty');
   list.innerHTML = '';
 
-  if (sessions.length === 0) {
+  const active   = sessions.filter(s => !s.archived);
+  const archived = sessions.filter(s =>  s.archived);
+  const visible  = showArchived ? sessions : active;
+
+  if (visible.length === 0 && !showArchived) {
     empty.style.display = 'block';
     return;
   }
   empty.style.display = 'none';
 
-  for (const session of sessions) {
+  for (const session of visible) {
     const row = document.createElement('div');
     const isActiveSession = activeProject.id === currentProjectId && session.id === currentSessionId;
-    row.className = 'session-row' + (isActiveSession ? ' session-row-active' : '');
+    const isArchived = !!session.archived;
+    row.className = 'session-row' + (isActiveSession ? ' session-row-active' : '') + (isArchived ? ' session-row-archived' : '');
     row.dataset.id = session.id;
 
     const lastActive  = formatRelative(session.lastActive);
     const entryStr    = session.entryCount === 1 ? '1 entry' : `${session.entryCount || 0} entries`;
     const badge       = scenarioBadgeHtml(session.scenario);
     const activePill  = isActiveSession ? `<span class="active-pill">● Active</span>` : '';
+    const archivePill = isArchived ? `<span class="archived-pill">Archived</span>` : '';
     const btnLabel    = isActiveSession ? 'Resume' : 'Open';
+    const archiveBtnLabel = isArchived ? '↩ Unarchive' : '🗂';
+    const archiveBtnTitle = isArchived ? 'Unarchive session' : 'Archive session';
 
     const descHtml = session.description
       ? `<div class="session-description">${escHtml(session.description)}</div>`
@@ -333,6 +343,7 @@ function renderSessions() {
           <button class="btn-rename btn-ghost btn-icon" title="Rename session" data-current="${escHtml(session.name)}">✏</button>
           ${badge}
           ${activePill}
+          ${archivePill}
         </div>
         <div class="session-row-meta">
           <span>${entryStr}</span>
@@ -340,7 +351,10 @@ function renderSessions() {
         </div>
         ${descHtml}
       </div>
-      <button class="btn-open-session btn-primary btn-sm" data-project-id="${activeProject.id}" data-session-id="${session.id}">${btnLabel}</button>
+      <div class="session-row-actions">
+        ${!isActiveSession ? `<button class="btn-archive-session btn-ghost btn-icon" title="${archiveBtnTitle}" data-archived="${isArchived}">${archiveBtnLabel}</button>` : ''}
+        <button class="btn-open-session btn-primary btn-sm" data-project-id="${activeProject.id}" data-session-id="${session.id}">${btnLabel}</button>
+      </div>
     `;
 
     row.querySelector('.btn-open-session').addEventListener('click', () => {
@@ -386,7 +400,31 @@ function renderSessions() {
       input.addEventListener('keydown', (e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); input.blur(); } if (e.key === 'Escape') { input.value = current; input.blur(); } });
     });
 
+    const archiveBtn = row.querySelector('.btn-archive-session');
+    if (archiveBtn) {
+      archiveBtn.addEventListener('click', async (e) => {
+        e.stopPropagation();
+        const willArchive = archiveBtn.dataset.archived !== 'true';
+        try {
+          await api(`/api/sessions/${activeProject.id}/${session.id}/archive`, 'PATCH', { archived: willArchive });
+          session.archived = willArchive;
+          renderSessions();
+        } catch { /* error shown by api() */ }
+      });
+    }
+
     list.appendChild(row);
+  }
+
+  // "Show archived" toggle at bottom of list
+  if (archived.length > 0) {
+    const toggle = document.createElement('button');
+    toggle.className = 'btn-show-archived btn-ghost btn-sm';
+    toggle.textContent = showArchived
+      ? `Hide archived`
+      : `Show archived (${archived.length})`;
+    toggle.addEventListener('click', () => { showArchived = !showArchived; renderSessions(); });
+    list.appendChild(toggle);
   }
 }
 

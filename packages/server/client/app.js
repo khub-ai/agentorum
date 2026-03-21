@@ -986,6 +986,20 @@ document.getElementById('compose-file').addEventListener('change', async e => {
   setTimeout(() => badge.remove(), 5000);
 });
 
+// Compose textarea auto-resize
+(function initComposeResize() {
+  const ta = document.getElementById('compose-body');
+  if (!ta) return;
+  function resize() {
+    ta.style.height = 'auto';
+    ta.style.height = Math.min(ta.scrollHeight, 220) + 'px';
+  }
+  ta.addEventListener('input', resize);
+  // Reset height when compose bar is cleared after post
+  const observer = new MutationObserver(() => { if (!ta.value) { ta.style.height = ''; } });
+  observer.observe(ta, { attributes: false, childList: false, characterData: true, subtree: false });
+})();
+
 document.getElementById('btn-preview-toggle').addEventListener('click', () => {
   const preview = document.getElementById('compose-preview');
   const body    = document.getElementById('compose-body').value;
@@ -1212,6 +1226,26 @@ function scrollToAnchoredEntry() {
   card.classList.add('entry-highlighted');
   setTimeout(() => card.classList.remove('entry-highlighted'), 2500);
 }
+
+// ---------------------------------------------------------------------------
+// Jump-to-latest button
+// ---------------------------------------------------------------------------
+(function initJumpToLatest() {
+  const chatlog = document.getElementById('chatlog');
+  const btn     = document.getElementById('btn-jump-latest');
+  if (!chatlog || !btn) return;
+
+  function updateJumpBtn() {
+    const distFromBottom = chatlog.scrollHeight - chatlog.scrollTop - chatlog.clientHeight;
+    btn.style.display = distFromBottom > 300 ? 'block' : 'none';
+  }
+
+  chatlog.addEventListener('scroll', updateJumpBtn, { passive: true });
+
+  btn.addEventListener('click', () => {
+    chatlog.scrollTo({ top: chatlog.scrollHeight, behavior: 'smooth' });
+  });
+})();
 
 // ---------------------------------------------------------------------------
 // Dark / light mode toggle

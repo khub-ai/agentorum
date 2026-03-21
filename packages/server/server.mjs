@@ -744,6 +744,22 @@ async function handleRequest(req, res) {
       }
     }
 
+    // PATCH /api/sessions/:projectId/:sessionId/archive
+    const archiveMatch = pathname.match(/^\/api\/sessions\/([^/]+)\/([^/]+)\/archive$/);
+    if (archiveMatch && method === 'PATCH') {
+      const [, projectId, sessionId] = archiveMatch;
+      try {
+        const { archived } = JSON.parse(await readBody(req));
+        const ws = workspaceManager.workspace;
+        if (ws?.lastSession?.sessionId === sessionId && ws?.lastSession?.projectId === projectId) {
+          return jsonResp(res, { error: 'Cannot archive the active session' }, 400);
+        }
+        return jsonResp(res, await workspaceManager.setSessionArchived(projectId, sessionId, !!archived));
+      } catch (err) {
+        return jsonResp(res, { error: err.message }, 400);
+      }
+    }
+
     // PATCH /api/sessions/:projectId/:sessionId/description
     const descMatch = pathname.match(/^\/api\/sessions\/([^/]+)\/([^/]+)\/description$/);
     if (descMatch && method === 'PATCH') {

@@ -463,6 +463,15 @@ export class WorkspaceManager {
     return { ...data, id: sessionId };
   }
 
+  async setSessionArchived(projectId, sessionId, archived) {
+    const sessionFile = path.join(this.projectsDir, projectId, 'sessions', sessionId, 'session.json');
+    const data = await readJson(sessionFile);
+    if (archived) data.archived = true;
+    else delete data.archived;
+    await writeJson(sessionFile, data);
+    return data;
+  }
+
   // Regenerate per-participant rules files for interactive participants.
   // Called whenever a session is opened so stale tokens in the rules files
   // are refreshed to match the current session token.

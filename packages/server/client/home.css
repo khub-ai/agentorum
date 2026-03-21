@@ -1000,3 +1000,36 @@ textarea { resize: vertical; }
   resize: vertical;
   margin-top: 4px;
 }
+
+/* Session archive */
+.session-row-archived { opacity: 0.6; }
+.archived-pill {
+  font-size: 10px;
+  background: var(--badge-bg);
+  color: var(--text-muted);
+  border-radius: 10px;
+  padding: 1px 7px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+}
+.session-row-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+}
+.btn-archive-session {
+  font-size: 13px;
+  padding: 3px 6px;
+  opacity: 0;
+  transition: opacity 0.15s;
+}
+.session-row:hover .btn-archive-session { opacity: 1; }
+.btn-show-archived {
+  display: block;
+  width: 100%;
+  margin-top: 10px;
+  text-align: center;
+  font-size: 12px;
+  color: var(--text-muted);
+}
