@@ -225,6 +225,96 @@ An agent trained through adversarial sessions can then participate in a cooperat
 
 ---
 
+## Prior art and related work
+
+This framework is a novel synthesis of existing ideas, not a fundamentally new concept. The individual components are well-established; the contribution is the specific combination and the testable hypothesis that adversarial signals produce richer inductive learning than self-reflection alone.
+
+### Foundational work
+
+- **Generative Adversarial Networks (GANs)** — Goodfellow et al., 2014. The original adversarial learning framework: a Generator and Discriminator co-evolve through adversarial pressure, each driving the other to improve. GANs demonstrated that adversarial arrangements create training signals that neither party could generate alone. Our framework draws the same structural insight but replaces gradient-based weight updates with symbolic induction — the adversarial pressure drives rule extraction rather than parameter optimization.
+
+- **Self-play in reinforcement learning** — AlphaGo (Silver et al., 2016) and AlphaZero (Silver et al., 2017) demonstrated that adversarial self-play produces superhuman performance. Both agents improve through weight updates from game outcomes. Our framework operates in the language domain rather than game-play, and uses explicit rule induction rather than implicit policy learning.
+
+### Closest prior work
+
+- **Reflexion** — Shinn et al., 2023. An LLM agent reflects on its own task failures, generates verbal "reflections," and conditions on them in subsequent attempts. This is the closest precedent: it is agent-side verbal learning from failure, persisted across attempts. The key difference is the source of the learning signal — Reflexion uses **self-reflection** ("what did I do wrong?"), while our framework uses **adversarial challenge** ("here is exactly where your reasoning fails, with a concrete counterexample"). Our hypothesis is that adversarial signals are richer and more targeted than self-generated reflections, leading to faster and deeper induction.
+
+- **ExpeL (Experiential Learning)** — Zhao et al., 2023. An agent extracts transferable insights from accumulated task experience and applies them to new tasks. Like Reflexion, the learning is self-driven rather than adversarially driven. ExpeL's insight extraction is analogous to our INDUCTOR role, but without the adversarial pressure that generates the raw material for extraction.
+
+### Related but distinct
+
+- **AI Safety via Debate** — Irving et al., 2018. Two agents argue opposing positions before a human judge. The focus is on alignment (can debate help humans supervise superhuman AI?) rather than on learning. The debate is single-session with no persistence.
+
+- **Multi-agent debate for reasoning** — Du et al., 2023. Multiple agents debate to improve single-session reasoning accuracy. Demonstrates that adversarial interaction improves output quality, but without persistent learning — the agents start fresh each time.
+
+- **Voyager** — Wang et al., 2023. A Minecraft agent that builds a persistent skill library through autonomous exploration. Demonstrates persistable learning through code generation, but the learning is exploratory rather than adversarial.
+
+- **Generative Agents** — Park et al., 2023. Simulated agents with persistent memory that periodically reflect and form higher-level abstractions. Demonstrates persistent memory and reflection, but without adversarial structure or inductive rule extraction.
+
+### What this framework adds
+
+The testable hypothesis: **adversarial pressure from a dedicated ATTACKER agent produces more targeted, concrete, and actionable learning signals than self-reflection, leading to faster inductive learning and more robust induced rules.** The JUDGE role (preventing sycophantic collapse from corrupting the knowledge store) and the INDUCTOR separation (dedicated rule extraction rather than combined problem-solving-and-learning) are practical design contributions that address real failure modes in adversarial LLM interaction.
+
+If controlled experiments confirm that adversarial induction outperforms self-reflective induction (Reflexion-style) on the same tasks, the contribution is empirically validated. If not, the framework remains an interesting architecture that doesn't outperform simpler alternatives — and that outcome is itself informative.
+
+---
+
+## Initial test cases for exploration
+
+The first experiments should be small, affordable, and produce unambiguous results. The goal is not to prove the framework at scale but to establish whether the adversarial → induction → persistence loop works at all and whether it outperforms a Reflexion-style self-reflective baseline.
+
+### Recommended: Logical reasoning with common fallacies
+
+**Why this is the best starting point:**
+
+- LLMs make **systematic, well-documented errors** on logical reasoning — affirming the consequent, base rate neglect, scope ambiguity, negation errors. These errors are consistent enough that an ATTACKER can reliably find them, and general enough that induced rules ("when given P→Q and Q, do not conclude P") transfer to unseen problems.
+- Ground truth is **unambiguous** — logical validity is binary.
+- Problems are **short** — a single reasoning puzzle fits in a few hundred tokens, keeping API costs minimal.
+- The **adversarial signal is concrete** — the ATTACKER can present a specific counterexample that disproves the LEARNER's conclusion, which is exactly the kind of targeted signal that should drive good induction.
+- **Existing datasets**: FOLIO (first-order logic), LogiQA (logical comprehension), ReClor (logical reasoning from standardized tests). All freely available.
+
+**Proposed protocol:**
+
+1. Select 60 problems from FOLIO or LogiQA: 20 for baseline, 20 for adversarial training, 20 held-out for evaluation.
+2. Baseline: LEARNER solves 20 problems solo. Record accuracy.
+3. Adversarial training: LEARNER attempts 20 problems; ATTACKER challenges each; JUDGE validates; INDUCTOR extracts rules. ~5 rules expected.
+4. Evaluation: LEARNER (with induced rules) solves 20 held-out problems. Compare accuracy against baseline.
+5. Control: Reflexion-style agent (same 20 training problems, self-reflection instead of adversarial challenge) solves the same 20 held-out problems.
+
+**Estimated cost:** ~$1–3 total using second-tier models (Haiku, Flash, GPT-4o-mini). Fast enough to iterate multiple times in a day.
+
+### Secondary: Math word problems with trap patterns
+
+- **Dataset:** GSM8K hard subset or MATH (selected problems with known common-error patterns)
+- **Why:** LLMs make characteristic mistakes on specific problem types (e.g., forgetting to convert units, miscounting combinatorial cases, dividing instead of multiplying). ATTACKER can present the numerical counterexample. Induced rules are precise ("when the problem involves unit conversion, explicitly state units at every step").
+- **Trade-off:** Slightly more expensive than logical reasoning (longer chains of thought), but more visually impressive in a demo because the ATTACKER can show the concrete wrong answer.
+
+### Stretch goal: ARC-AGI-v2 abstract reasoning
+
+- **Dataset:** [ARC-AGI-v2](https://arcprize.org/) — abstract visual pattern recognition puzzles where the solver must infer a transformation rule from input-output grid pairs and apply it to a new input. Text-form puzzles are available at [dev-khub-ai/arctest2025](https://github.com/dev-khub-ai/arctest2025/tree/main/data).
+- **Why it's compelling:** LLMs perform far below human level on ARC, so there's massive headroom for improvement. Each puzzle inherently requires **induction** (figure out the rule from examples), which maps directly to Knowledge Fabric's learning mechanism. The adversarial signal is concrete — ATTACKER can point out exactly which grid cells are wrong and why the proposed rule doesn't explain the training examples. If adversarial induction meaningfully improves ARC scores, that would be a dramatically more impressive result than improving logical reasoning.
+- **Why it's risky as a first test:** ARC failures may be **capability-limited rather than knowledge-limited**. LLMs are fundamentally weak at spatial/grid manipulation in text form; no amount of induced verbal rules may fix that. The puzzles are also intentionally diverse — each tests a different transformation — so rules induced from one puzzle may not transfer to the next. If the experiment shows no improvement, it's hard to distinguish "the framework failed" from "the task is beyond what verbal induction can address."
+- **Recommendation:** Use as a second-phase experiment after logical reasoning validates the basic loop. High risk, high reward.
+
+### Deferred: Code security red-teaming
+
+- **Why deferred:** Requires the direct API agent backend to be built first (agents need to execute and test code). The adversarial dynamic is excellent (ATTACKER writes exploit inputs, LEARNER patches) but the infrastructure dependency makes it a second-phase experiment.
+- **When ready:** Use CWE Top 25 vulnerability patterns as the training domain. LEARNER writes a function to spec; ATTACKER finds an injection, overflow, or race condition; LEARNER patches; INDUCTOR extracts the security rule.
+
+### What "success" looks like in the initial experiment
+
+| Outcome | What it means |
+|---|---|
+| Adversarial agent accuracy > baseline accuracy on held-out set | The learning loop works — induced rules transfer to unseen problems |
+| Adversarial agent accuracy > Reflexion agent accuracy | Adversarial signals are richer than self-reflective signals (core hypothesis confirmed) |
+| Adversarial ≈ Reflexion | The adversarial structure adds complexity without benefit — simpler self-reflection suffices |
+| Adversarial < baseline | Induced rules are wrong or overfitted — the JUDGE/INDUCTOR pipeline needs debugging |
+| Sycophancy rate > 20% | JUDGE is not effectively filtering bad concessions — needs stronger prompting or a different model |
+
+All outcomes are informative. The experiment is designed to produce a clear signal regardless of direction.
+
+---
+
 ## Related
 
 - [← All use cases](../README.md)
