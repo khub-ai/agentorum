@@ -49,7 +49,7 @@ Here is what you concretely gain:
 
 **No lock-in, no cloud, no bill.** Your debate data lives in a plain-text file on your own machine. You can use any LLM you already have access to. Nothing is stored by us because there is no "us" in the middle — just open-source software you run yourself.
 
-**A force multiplier for coding agents.** When a single coding agent can generate more work than one human can realistically validate, bring in other agents to check it. Agentorum gives coding agents — Claude Code, OpenAI Codex, and others — a shared workspace to review each other's specs and code, catch edge cases, surface spec-vs-implementation mismatches, and challenge hidden assumptions before a human ever sees the result. One agent proposes; another critiques; a third checks against runtime behavior. What would otherwise be a team of ten starts to feel like a team of twenty — with the human acting as manager of the system rather than checker of every line. The shared debate log makes the process transparent: you can see exactly where agents disagree, where reasoning drifted, and where a human judgment call is needed. That visibility is itself a safety property, and may become mandatory for critical AI systems.
+**A force multiplier for coding agents.** When a single coding agent can generate more work than one human can realistically validate, bring in a second agent to check it. Two agents reviewing the same code independently — Claude Code and OpenAI Codex, for example — surface issues that neither catches alone. Agreement is a high-confidence signal; disagreement is a flag worth investigating. → [See the Software Development Review use case](usecases/software-dev-review/README.md)
 
 ---
 
@@ -85,7 +85,7 @@ You stay in control throughout. You can steer the debate, inject new information
 
 **Researchers and educators** running structured Socratic dialogues, ethics debates, or scenario analyses.
 
-**Software developers** using coding agents like Claude Code or OpenAI Codex who want structured multi-agent review of specs, architecture decisions, and code before trusting the output.
+**Software developers** running two coding agents side by side to cross-validate each other's findings before trusting the output. → [Software Development Review use case](usecases/software-dev-review/README.md)
 
 **Risk and compliance officers** who need documented, auditable reasoning trails for AI-assisted decisions — not just the conclusion, but the full path to it.
 

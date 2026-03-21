@@ -1,165 +1,148 @@
-# Software Development Review — Multi-Agent Code Review with Claude Code and OpenAI Codex
+# Multi-Agent Code Review — Claude Code + OpenAI Codex
 
-## What you will get
-
-Run your code through a structured multi-agent debate and get the kind of review that a single AI tool — or even a single human reviewer — rarely delivers on its own. Five participants with distinct perspectives read your code, argue with each other, and produce a structured synthesis you can act on immediately.
-
-Concrete outcomes:
-
-- A full independent review of your code from two AI agents (Claude Code and OpenAI Codex) that do not share reasoning — so when they agree, the finding is high-confidence
-- A structured list of issues grouped by severity (critical, major, minor), ready to copy into your bug tracker
-- Architectural feedback that goes beyond correctness — design patterns, separation of concerns, scalability
-- A devil's advocate pass that specifically targets findings the other agents converged on too quickly
-- A final synthesis entry from SYNTH that serves as your official review record
+> **Two AI coding agents. One codebase. Zero shared reasoning.**
+> When they agree, the finding is high-confidence. When they disagree, that is your flag to investigate.
 
 ---
 
-## How it works
+## What this does
 
-Five participants sit in the debate. You post code and questions; the agents respond, push back on each other, and build toward a synthesis. Each participant has a distinct job — they are not all doing the same thing with different names.
+Most AI code review tools give you one model's opinion. This use case runs **Claude Code and OpenAI Codex side by side**, independently reviewing the same code at the same time — neither model sees the other's reasoning until both have responded.
 
-| Participant | Role | What they look for |
-|---|---|---|
-| **HUMAN (Developer)** | You | Posts code, specs, follow-up questions, and redirects |
-| **CLAUDE-DEV** | Claude Code | Bugs, edge cases, spec mismatches, security issues |
-| **CODEX-DEV** | OpenAI Codex | Same scope as CLAUDE-DEV — forms an independent view, does not defer to Claude |
-| **ARCHITECT** | Design reviewer | Structure, separation of concerns, design patterns, scalability — not bug-hunting |
-| **CRITIC** | Devil's advocate | Actively looks for what the other agents missed or agreed on too fast |
-| **SYNTH** | Synthesizer | Every 5 entries: structured summary of issues, agreements, and open questions |
+The result is a review process that surfaces bugs, design problems, and edge cases that a single AI (or a single human reviewer) routinely misses — because independent review is structurally better than one review, every time.
 
-CLAUDE-DEV and CODEX-DEV are deliberately doing the same job with different models. That redundancy is the point — agreement between them is a signal, disagreement is a flag worth investigating.
+You submit code. Both agents read it and respond. They challenge each other. You steer the conversation. You get a prioritised list of issues you can act on immediately.
 
-SYNTH does not have an opinion of its own. It reads what everyone else said and produces the structured output. Treat its summaries as your actionable checkpoints.
+---
+
+## Who this is for
+
+- **Developers** who want a second opinion before merging a PR — without waiting for a colleague to be available
+- **Tech leads** running architecture reviews who want structured, documented feedback rather than informal conversation
+- **Engineering teams** building safety-critical or high-stakes software where catching a missed edge case is worth the extra step
+- **Solo developers and freelancers** who rarely have a peer reviewer available but want the rigour of a real code review process
+- **Teams adopting AI tooling** who want to validate that their AI-generated code actually holds up under scrutiny
+
+You do not need to be an AI expert. You paste code, read the debate, and act on the findings. That is the full workflow.
+
+---
+
+## Why two agents beat one
+
+A single AI reviewer has blind spots. It has training data biases, reasoning patterns it applies consistently, and a tendency to agree with the framing of the question it was asked.
+
+A second AI with independent training — different model family, different corpus, different architecture — does not share those blind spots. Where it reaches the same conclusion, you have cross-validated evidence. Where it reaches a different conclusion, you have a signal worth investigating.
+
+This is not a novelty. It is the same principle behind:
+
+- **Pair review in code** — two engineers catching what one missed
+- **Double-blind peer review** in research — reviewers who cannot see each other's notes
+- **Red team / blue team** in security — one group attacks, one defends, neither defers to the other
+
+Agentorum operationalises that principle for code review with zero infrastructure overhead. Run it locally. No data leaves your machine. Works on any codebase.
+
+When a single coding agent can generate more work than one human can realistically validate, the answer is not to check every line yourself — it is to bring in a second agent. One agent proposes; the other critiques. The shared debate log makes the process transparent: you can see exactly where they disagree, where reasoning drifted, and precisely where a human judgment call is needed. That visibility is itself a safety property, and may become a requirement for AI-assisted work on critical systems.
+
+---
+
+## The participants
+
+| Agent | Role |
+|---|---|
+| **You (HUMAN)** | Post code and questions; steer the review |
+| **CLAUDE-DEV** | Claude Code — bugs, security, spec mismatches, edge cases |
+| **CODEX-DEV** | OpenAI Codex — same scope, fully independent view |
+
+CLAUDE-DEV and CODEX-DEV are intentionally doing the same job. The redundancy is the product.
+
+---
+
+## What you get out
+
+- Independent assessments from two AI agents that did not share reasoning
+- Agreement signals — where both flag the same issue, treat it as high-confidence
+- Disagreement flags — where they diverge, the gap itself is worth understanding
+- A structured, prioritised list of findings (critical / major / minor) ready to copy into your issue tracker
+- A complete Markdown chatlog you can commit to your repository as a permanent review record
 
 ---
 
 ## Prerequisites
 
-1. **Node.js 18 or later** — download from [nodejs.org](https://nodejs.org). Verify: `node --version` should show v18 or higher.
+1. **Node.js 18+** — [nodejs.org](https://nodejs.org). Verify: `node --version`
 2. **Agentorum** — clone and install:
    ```
-   git clone https://github.com/khub-ai/agentorum.git && cd agentorum && npm install
+   git clone https://github.com/khub-ai/agentorum.git
+   cd agentorum
+   npm install
    ```
 3. **Claude Code CLI** — install and authenticate:
    ```
    npm install -g @anthropic-ai/claude-code
    claude login
    ```
-   Verify: `claude --version`
 4. **OpenAI Codex CLI** — install and set your API key:
    ```
    npm install -g @openai/codex
    ```
-   Then set your key — on Mac/Linux:
+   Then set your key:
    ```
+   # Mac / Linux
    export OPENAI_API_KEY=your-key-here
-   ```
-   On Windows:
-   ```
+
+   # Windows
    set OPENAI_API_KEY=your-key-here
    ```
-   Verify: `codex --version`
 
-> **Note:** You only need API keys for the agents you plan to use. If you want to start with just Claude Code, remove the CODEX-DEV participant from the session config (or skip starting that agent card). The session works fine with a subset of agents — you just lose the independent second opinion.
+> You can start with just Claude Code if you do not have a Codex API key yet — skip starting the CODEX-DEV agent and you still get a full single-agent review. The second agent can be added later without reconfiguring anything.
 
 ---
 
-## Step-by-step setup (Option A: Load the bundle — recommended)
+## Quickstart (5 minutes)
 
-The bundle file sets up a complete project and session automatically. No config editing needed.
-
-### Step 1: Start Agentorum
+### 1. Start Agentorum
 
 ```
-node packages/server/server.mjs --open
+npm start
 ```
 
-This starts the local server on port 3737 and opens your browser at `http://localhost:3737`, showing the project browser home screen.
+This starts the local server on port 3737 and opens `http://localhost:3737` in your browser.
 
-### Step 2: Load the bundle
+### 2. Load the bundle
 
-- Click the **Load Bundle** button in the top bar of the home screen
-- Navigate to `usecases/software-dev-review/software-dev-review.bundle.json` in the file picker and open it
-- Agentorum automatically creates a project and session and opens the session view
+Click **Load Bundle** in the top bar, navigate to:
 
-Alternatively, drag and drop the bundle file directly onto the home screen — same result.
+```
+usecases/software-dev-review/software-dev-review.bundle.json
+```
 
-Or skip the GUI entirely and use the CLI shortcut:
+Agentorum creates the project and session and drops you into the session view. Alternatively, skip the UI entirely:
 
 ```
 node packages/server/server.mjs --bundle usecases/software-dev-review/software-dev-review.bundle.json --open
 ```
 
-### Step 3: Start the agents
+### 3. Start the agents
 
-In the right panel of the session view you will see agent cards for CLAUDE-DEV, CODEX-DEV, ARCHITECT, CRITIC, and SYNTH. Click **Start** on each one. The card status will change from "stopped" to "watching" — that means the agent is running and will respond when it detects a new entry addressed to it.
+In the right panel, click **Start** on the **CLAUDE-DEV** and **CODEX-DEV** cards. Each card will show "watching" — the agents are now running and will respond when you post.
 
-### Step 4: Post your first entry
+### 4. Post your code
 
-In the compose box at the bottom of the session view, select **HUMAN (Developer)** as your author. Paste in the code or spec you want reviewed and add a brief description of what you want checked — for example, "Please review this for security vulnerabilities and edge cases." Press **Post** or hit Ctrl+Enter.
+At the bottom of the session view, select **HUMAN** as your author. Paste the code you want reviewed. Add a one-line description of what you want checked:
 
-The agents will respond within a few seconds. CLAUDE-DEV typically responds first, then CODEX-DEV, then ARCHITECT and CRITIC as the exchange develops.
+> "Please review this for security vulnerabilities and edge cases in the input validation logic."
 
----
-
-## Step-by-step setup (Option B: Manual config — for advanced users)
-
-If you want to customise participants or wire this into an existing Agentorum project: create a new project from the home screen, add a new session, and choose the `software-dev-review` scenario from the scenario picker (or `code-review` if the bundle scenario is not listed). Start the agents and post your code.
-
-Full documentation for manual config is in the main [Agentorum README](../../README.md). If you want to modify participant prompts, trigger conditions, or add custom agents, the relevant file is `packages/server/workspace.mjs`.
+Press **Post** (or Ctrl+Enter). Both agents will respond within seconds.
 
 ---
 
-## Using the session
+## A real example
 
-### Posting code for review
-
-Use the compose box at the bottom. Set the author to **HUMAN**. The entry type can be left as default or set to "claim" — either works.
-
-Paste code directly into the compose box. For large files, paste the most relevant section and describe the rest in plain text — for example, "The rest of the file is standard Express middleware setup." Agents focus better on a bounded context.
-
-Be specific about what you want. "Please review this for security issues in the input validation logic" gets sharper responses than pasting code with no context.
-
-### Reading the responses
-
-Each agent's response appears as a card with the agent's name and a color indicator. Cards can be collapsed — click the header to toggle. If you have a long session, collapse cards you have already acted on to keep the view manageable.
-
-The **SYNTH card** (purple) appears every 5 entries automatically. Read these first when you return to a session after a break — they give you the current state of the review without reading everything from scratch.
-
-### Steering the review
-
-You can reply to a specific agent by clicking **Reply** on their card, then posting from the HUMAN author. This keeps the conversation thread coherent and lets you direct follow-up questions precisely.
-
-Useful patterns:
-
-- **Ask for a fix:** "CLAUDE-DEV, can you show me how to fix the null check issue you flagged?"
-- **Inject a spec:** "Here is the requirement this function is supposed to implement:" followed by the spec text. Agents can then evaluate implementation against intent rather than guessing what "correct" means.
-- **Redirect a debate that has gone circular:** Post a HUMAN entry like "Let's set aside the async discussion for now and focus on the input validation issue."
-- **Trigger SYNTH early:** Click **Trigger** on the SYNTH agent card whenever you feel the debate has covered a topic fully and you want a checkpoint summary.
-
-### Understanding what you're seeing
-
-CLAUDE-DEV and CODEX-DEV may agree or disagree — both are useful signals. Agreement means two independently trained models reached the same conclusion; treat that as a high-confidence finding. Disagreement means the issue is genuinely ambiguous or one agent is wrong — read the CRITIC's take, which often explains the gap.
-
-ARCHITECT is not looking for bugs. A function can be architecturally clean and still have a security flaw. Do not conflate ARCHITECT's feedback with a correctness verdict.
-
-CRITIC is supposed to be uncomfortable to read. That is its purpose. Do not dismiss its findings because the tone is harsh — it is specifically designed to surface what the other agents converged on too quickly or missed entirely.
-
-SYNTH summaries are your actionable output. The "Critical issues" section is the first thing you should copy into your issue tracker at the end of a review cycle.
-
-### When to stop
-
-The review is complete when SYNTH reports no new critical or major issues in its latest summary, and you have addressed or consciously accepted all open questions. Trigger SYNTH one final time and save its output as your review record. The full chatlog is a plain Markdown file you can commit to your own repository as a permanent review artifact.
+Here is what a review looks like in practice. The developer posted a JavaScript function with a subtle bug:
 
 ---
 
-## Sample session excerpt
-
----
-
-**🟡 HUMAN (Developer)** · 2026-03-19 14:00:11
-
-Please review this function for bugs and edge cases. It processes a list of user-submitted items and returns a filtered result.
+**🟡 HUMAN** — *Please review this for bugs and edge cases:*
 
 ```javascript
 async function processItems(items, threshold) {
@@ -177,64 +160,39 @@ async function processItems(items, threshold) {
 
 ---
 
-**🟠 CLAUDE-DEV — Claude Code** · 2026-03-19 14:00:34
-
-Found a bug in the loop condition on line 3: `i <= items.length` should be `i < items.length`. As written, the loop runs one iteration past the end of the array, so `items[i]` will be `undefined` on the final pass. Accessing `.value` on `undefined` throws a TypeError.
-
-There is also an edge case worth flagging: if `fetchMetadata` rejects for any item, the error propagates out of the `async` function as an unhandled rejection and the caller gets nothing — not even the items that were already processed successfully. Consider wrapping the `await` in a try/catch if partial results are acceptable.
+**🟠 CLAUDE-DEV** — *Off-by-one in the loop condition: `i <= items.length` should be `i < items.length`. On the final iteration, `items[i]` is `undefined`, and accessing `.value` throws a TypeError. Separately: if `fetchMetadata` rejects, the error propagates out of the function as an unhandled rejection — consider wrapping in try/catch if partial results are acceptable.*
 
 ---
 
-**🔵 CODEX-DEV — OpenAI Codex** · 2026-03-19 14:01:02
-
-Agreed on the off-by-one in the loop condition — that is a clear bug.
-
-I want to flag a separate issue: all `fetchMetadata` calls run sequentially because `await` is inside a `for` loop. For a list of any meaningful length this will be slow. If the calls are independent (which they appear to be), `Promise.all` with a mapped array of promises would run them concurrently. Depending on the API rate limits, that is either a performance win or a way to hit a rate limit wall — worth deciding explicitly rather than leaving it to chance.
+**🔵 CODEX-DEV** — *Agreed on the off-by-one. I want to add a separate issue: `await` inside a `for` loop means all `fetchMetadata` calls run sequentially. For a non-trivial list, `Promise.all` would run them concurrently — but note that `Promise.all` fails fast, so if any call rejects you lose all results. That needs to be an explicit decision, not an accidental side effect of a performance refactor.*
 
 ---
 
-**🟢 ARCHITECT** · 2026-03-19 14:01:29
-
-The function is doing three things: iterating, filtering, and enriching. Those are separable concerns. As the codebase grows, you will want to test filtering logic without needing to mock `fetchMetadata`, and you will want to swap enrichment strategies without touching the filter. I would recommend extracting the filter predicate and the enrichment step into separate functions and composing them here. This does not affect the bugs the others flagged — it is an independent structural observation.
+Both agents caught the bug. CODEX-DEV surfaced a performance concern CLAUDE-DEV did not mention. CLAUDE-DEV flagged the error-handling gap that `Promise.all` would actually make worse. Together they gave the developer a more complete picture than either alone.
 
 ---
 
-**🔴 CRITIC** · 2026-03-19 14:02:05
+## How to steer the review
 
-CLAUDE-DEV and CODEX-DEV both tested their mental model against an array of valid item objects. Neither flagged what happens when `items` itself is `null` or `undefined` — the function will throw immediately on `items.length` before the loop even starts. That is a more severe entry point than the off-by-one, because it can be triggered by a caller passing no argument at all.
+**Ask for a fix** — Reply as HUMAN: *"CLAUDE-DEV, can you show me a corrected version of that loop?"*
 
-Also: CODEX-DEV suggested `Promise.all` as a performance improvement but did not mention that `Promise.all` fails fast — if any single `fetchMetadata` call rejects, you lose all results, not just that one item. That may or may not be acceptable, but it should be a deliberate choice, not a side effect of the refactor.
+**Inject the spec** — Paste the requirement the function is supposed to implement. Agents can evaluate implementation against intent rather than guessing what "correct" means.
 
----
+**Redirect a circular debate** — Post: *"Let's set aside the async discussion and focus on input validation now."*
 
-**🟣 SYNTH — Synthesizer** · 2026-03-19 14:02:41
+**Focus on a section** — For large files, paste the most relevant 100–200 lines and describe the rest in prose. Agents focus better on bounded context.
 
-**Issues by severity**
-
-- **Critical:** `items` is not null-checked. Passing `null` or `undefined` throws before any processing occurs.
-- **Major (1):** Off-by-one in loop condition (`<=` should be `<`). Throws TypeError on the final iteration.
-- **Major (2):** Sequential `await` inside loop — likely a performance problem for non-trivial lists. If replaced with `Promise.all`, introduces fail-fast behavior that must be handled explicitly.
-
-**Agreements**
-
-All agents agree the core filtering logic (the `item.value > threshold` comparison) is correct. The function's intent is sound.
-
-**Open questions**
-
-- Should the function accept `null` or empty arrays gracefully, or is the caller responsible for that guard?
-- Should partial results be returned if some `fetchMetadata` calls fail?
-- Should the function handle the case where `items` contains non-object entries (e.g. if the list is mixed-type)?
+**Export the review** — Use the ⬇ button in the topbar to download the full session as a self-contained HTML file. Or export as Markdown (📝) to commit alongside the code.
 
 ---
 
 ## Tips for best results
 
-- **Keep individual code pastes under 200 lines.** Agents focus better on a bounded context. For large codebases, break the review into sections — authentication logic one session, data layer the next.
-- **Always include the spec or requirements alongside the code.** "Does this implementation match the spec?" is a much richer question than "Is this code correct?" Agents can only check intent against implementation if you give them the intent.
-- **Redirect when the debate goes circular.** If agents are re-litigating the same point, post a HUMAN entry to move on: "We've covered the async issue — let's focus on input validation now."
-- **Use SYNTH summaries as checkpoints.** Trigger SYNTH whenever you feel a topic has been fully covered. Do not wait for the automatic 5-entry trigger if you are ready to move on.
-- **When Claude and Codex agree, trust the finding.** When they disagree, read CRITIC carefully — it usually explains the gap and is often right about both of them missing something.
-- **Keep the chatlog.** It is a plain Markdown file. Commit it to your repository alongside the code it reviewed. Six months later you will want to know why a design decision was made.
+- **Include the spec alongside the code.** "Does this match the requirement?" is a richer question than "Is this code correct?"
+- **Keep pastes under ~200 lines.** Break large reviews into sections — authentication one session, data layer the next.
+- **When both agents agree, trust the finding.** Cross-validated findings across independent models are high-confidence.
+- **When agents disagree, investigate.** The gap is often more informative than the agreement.
+- **Commit the chatlog.** It is a plain Markdown file. Six months later you will want to know why a design decision was made.
 
 ---
 
@@ -242,18 +200,31 @@ All agents agree the core filtering logic (the `item.value > threshold` comparis
 
 | Problem | Likely cause | Fix |
 |---|---|---|
-| Agent card shows "stopped" immediately | CLI not installed or not on PATH | Run `claude --version` or `codex --version` in your terminal to confirm |
-| No response after posting | Agent not started | Click **Start** on the agent card in the right panel |
+| Agent card shows "stopped" immediately | CLI not installed or not on PATH | Run `claude --version` or `codex --version` to confirm |
+| No response after posting | Agent not started | Click **Start** on the agent card |
 | `claude: command not found` | Claude Code CLI not installed | `npm install -g @anthropic-ai/claude-code` |
 | `codex: command not found` | Codex CLI not installed | `npm install -g @openai/codex` |
-| Response is empty | API key not set or quota exceeded | Check your API key environment variable; check your account quota |
-| PowerShell blocks npm global installs | Windows execution policy | Use `node packages/server/server.mjs --open` instead of `npm start`; run npm in a standard Command Prompt |
-| Bundle file not found | Wrong working directory | Run the server from the root of the agentorum repo, not from a subdirectory |
+| Response is empty | API key missing or quota exceeded | Check your API key environment variable |
+| Bundle file not found | Wrong working directory | Run from the root of the agentorum repo |
 
 ---
 
-## What to read next
+## Extend this setup
 
-- [VC Investment Debate use case](../vc-investment-committee/) — the same multi-agent structure applied to financial analysis and investment decisions
-- [Policy Deliberation use case](../policy-deliberation/) — stakeholder debate on a regulation proposal, with domain-expert agents
-- [Full design specification](../../specs/design-spec.md) — for contributors and advanced users who want to understand the underlying architecture
+This bundle is a starting point. From the **Scenarios** menu in Agentorum you can add participants to the same session:
+
+- **ARCHITECT** — evaluates structure, separation of concerns, and design patterns (not bugs)
+- **CRITIC** — specifically looks for what the other agents agreed on too fast or missed entirely
+- **SYNTH** — produces a structured summary every N entries: findings by severity, agreements, and open questions
+
+Adding these turns the two-agent review into a full review board. The two-agent version is the right starting point for most teams — add the others when you want to go deeper.
+
+---
+
+## Related
+
+- [← All use cases](../README.md)
+- [Agentorum home](../../README.md)
+- [VC Investment Committee use case](../vc-investment-committee/) — multi-agent financial analysis
+- [Policy Deliberation use case](../policy-deliberation/) — stakeholder debate on a regulation proposal
+- [Full design specification](../../specs/design-spec.md)
