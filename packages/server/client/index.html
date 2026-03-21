@@ -25,6 +25,7 @@
     <a id="btn-export" href="/api/export" download title="Export chatlog as HTML">⬇</a>
     <a id="btn-export-md" href="/api/export?format=md" download title="Export chatlog as Markdown">📝</a>
     <button id="btn-compose-toggle" title="New entry">✏️</button>
+    <button id="btn-toggle-agents" title="Toggle agents panel">👥</button>
     <button id="btn-theme" title="Toggle dark/light mode">🌙</button>
     <button id="btn-settings" title="Settings">⚙</button>
   </div>
@@ -40,6 +41,7 @@
 <div id="compose-bar" style="display:none">
   <select id="compose-author"></select>
   <textarea id="compose-body" rows="3" placeholder="Write your entry…"></textarea>
+  <div id="compose-word-count"></div>
   <div id="compose-actions">
     <label id="btn-attach" title="Attach image or video" style="cursor:pointer">
       📎
@@ -119,6 +121,10 @@
       <button id="btn-score-close">✕</button>
     </div>
     <div id="score-modal-total"></div>
+    <div id="score-modal-filter">
+      <label>Filter: </label>
+      <select id="score-filter-type"><option value="">All events</option></select>
+    </div>
     <div id="score-modal-events"></div>
   </div>
 </div>

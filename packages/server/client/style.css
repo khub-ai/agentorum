@@ -1222,3 +1222,55 @@ label { display: flex; align-items: center; gap: 6px; cursor: pointer; }
 @media (max-width: 860px) {
   #btn-jump-latest { right: 16px; }
 }
+
+/* Compose word count */
+#compose-word-count {
+  font-size: 11px;
+  color: var(--text-muted);
+  padding: 0 4px;
+  min-height: 16px;
+}
+
+/* Score modal filter */
+#score-modal-filter {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 8px;
+  font-size: 12px;
+  color: var(--text-muted);
+}
+#score-filter-type {
+  font-size: 12px;
+  padding: 2px 6px;
+  border-radius: 4px;
+  border: 1px solid var(--border);
+  background: var(--bg);
+  color: var(--text);
+}
+.score-event-count {
+  font-size: 12px;
+  color: var(--text-muted);
+  font-weight: normal;
+}
+
+/* Agents panel toggle */
+#btn-toggle-agents {
+  background: none;
+  border: none;
+  cursor: pointer;
+  font-size: 16px;
+  padding: 4px 6px;
+  border-radius: var(--radius);
+  color: var(--text-muted);
+  transition: background 0.15s, opacity 0.15s;
+}
+#btn-toggle-agents:hover { background: var(--bg-sidebar); }
+
+/* Session elapsed time */
+#session-elapsed {
+  font-size: 11px;
+  color: var(--text-muted);
+  white-space: nowrap;
+  margin-left: 4px;
+}

@@ -66,6 +66,7 @@ function connect() {
             updateAgentCard(e.author);
           }
           if (filterNewOnly || isVisible(e)) appendEntryCard(e);
+          notifyNewEntry(e);
         });
         updateNewBadge();
         break;
@@ -564,18 +565,37 @@ document.getElementById('agent-cards').addEventListener('click', e => {
   openScoreModal(id);
 });
 
+let _scoreModalParticipant = null;
+
 function openScoreModal(participantId) {
+  _scoreModalParticipant = participantId;
   const sc  = scoreMap[participantId];
   const p   = (serverConfig.participants || []).find(p => p.id === participantId);
   const name = p?.label || p?.name || participantId;
   document.getElementById('score-modal-title').textContent = `${participantId} — ${name}`;
   document.getElementById('score-modal-total').innerHTML =
-    sc ? `<span class="score-total ${sc.total > 0 ? 'pos' : sc.total < 0 ? 'neg' : 'zero'}">${scoreLabel(sc.total)} total</span>` : 'No ratings yet.';
+    sc ? `<span class="score-total ${sc.total > 0 ? 'pos' : sc.total < 0 ? 'neg' : 'zero'}">${scoreLabel(sc.total)} total</span> <span class="score-event-count">(${sc.events.length} events)</span>` : 'No ratings yet.';
 
+  // Populate event type filter
+  const filterEl = document.getElementById('score-filter-type');
+  filterEl.innerHTML = '<option value="">All events</option>';
+  if (sc?.events?.length) {
+    const types = [...new Set(sc.events.map(ev => ev.event))].sort();
+    types.forEach(t => { const o = document.createElement('option'); o.value = t; o.textContent = t; filterEl.appendChild(o); });
+  }
+  filterEl.value = '';
+
+  renderScoreEvents(participantId, '');
+  document.getElementById('score-modal').style.display = 'flex';
+}
+
+function renderScoreEvents(participantId, filterType) {
+  const sc = scoreMap[participantId];
   const eventsEl = document.getElementById('score-modal-events');
   eventsEl.innerHTML = '';
   if (sc?.events?.length) {
-    sc.events.slice().reverse().forEach(ev => {
+    const filtered = filterType ? sc.events.filter(ev => ev.event === filterType) : sc.events;
+    filtered.slice().reverse().forEach(ev => {
       const row = document.createElement('div');
       row.className = 'score-event-row';
       const pts = ev.score > 0 ? `+${ev.score}` : `${ev.score}`;
@@ -588,11 +608,15 @@ function openScoreModal(participantId) {
       `;
       eventsEl.appendChild(row);
     });
+    if (filtered.length === 0) eventsEl.innerHTML = '<p class="score-empty">No events of this type.</p>';
   } else {
     eventsEl.innerHTML = '<p class="score-empty">No rating events yet.</p>';
   }
-  document.getElementById('score-modal').style.display = 'flex';
 }
+
+document.getElementById('score-filter-type').addEventListener('change', e => {
+  if (_scoreModalParticipant) renderScoreEvents(_scoreModalParticipant, e.target.value);
+});
 
 function closeScoreModal() {
   document.getElementById('score-modal').style.display = 'none';
@@ -986,15 +1010,23 @@ document.getElementById('compose-file').addEventListener('change', async e => {
   setTimeout(() => badge.remove(), 5000);
 });
 
-// Compose textarea auto-resize
+// Compose textarea auto-resize + word count
 (function initComposeResize() {
   const ta = document.getElementById('compose-body');
+  const wc = document.getElementById('compose-word-count');
   if (!ta) return;
   function resize() {
     ta.style.height = 'auto';
     ta.style.height = Math.min(ta.scrollHeight, 220) + 'px';
   }
-  ta.addEventListener('input', resize);
+  function updateWordCount() {
+    const text = ta.value.trim();
+    if (!text) { wc.textContent = ''; return; }
+    const words = text.split(/\s+/).length;
+    const chars = text.length;
+    wc.textContent = `${words} word${words !== 1 ? 's' : ''} · ${chars} chars`;
+  }
+  ta.addEventListener('input', () => { resize(); updateWordCount(); });
   // Reset height when compose bar is cleared after post
   const observer = new MutationObserver(() => { if (!ta.value) { ta.style.height = ''; } });
   observer.observe(ta, { attributes: false, childList: false, characterData: true, subtree: false });
@@ -1017,6 +1049,8 @@ document.getElementById('btn-post').addEventListener('click', async () => {
   if (!body) return;
   await api('/api/entries', 'POST', { author, body });
   document.getElementById('compose-body').value = '';
+  document.getElementById('compose-body').style.height = '';
+  document.getElementById('compose-word-count').textContent = '';
   document.getElementById('compose-preview').style.display = 'none';
   document.getElementById('compose-bar').style.display = 'none';
 });
@@ -1248,6 +1282,56 @@ function scrollToAnchoredEntry() {
 })();
 
 // ---------------------------------------------------------------------------
+// Session elapsed time
+// ---------------------------------------------------------------------------
+(function initSessionTimer() {
+  const el = document.createElement('span');
+  el.id = 'session-elapsed';
+  el.title = 'Session duration';
+  // Insert into topbar-left after the logo
+  const topLeft = document.getElementById('topbar-left');
+  if (topLeft) topLeft.appendChild(el);
+
+  function update() {
+    if (!allEntries.length) { el.textContent = ''; return; }
+    const first = allEntries[0].timestamp;
+    if (!first) { el.textContent = ''; return; }
+    const start = new Date(first.replace(' ', 'T'));
+    const diff  = Date.now() - start.getTime();
+    if (isNaN(diff) || diff < 0) { el.textContent = ''; return; }
+    const mins  = Math.floor(diff / 60000);
+    const hrs   = Math.floor(mins / 60);
+    const days  = Math.floor(hrs / 24);
+    let label;
+    if (days > 0) label = `${days}d ${hrs % 24}h`;
+    else if (hrs > 0) label = `${hrs}h ${mins % 60}m`;
+    else label = `${mins}m`;
+    el.textContent = `· ${label}`;
+  }
+  setInterval(update, 30000);
+  // Also update on first render
+  const origRenderAll = renderAll;
+  renderAll = function() { origRenderAll(); update(); };
+})();
+
+// ---------------------------------------------------------------------------
+// Collapsible agents panel
+// ---------------------------------------------------------------------------
+(function initAgentsToggle() {
+  const btn   = document.getElementById('btn-toggle-agents');
+  const panel = document.getElementById('agents-panel');
+  if (!btn || !panel) return;
+  const saved = localStorage.getItem('agentorum_agents_hidden');
+  if (saved === '1') { panel.style.display = 'none'; btn.style.opacity = '0.5'; }
+  btn.addEventListener('click', () => {
+    const hidden = panel.style.display === 'none';
+    panel.style.display = hidden ? '' : 'none';
+    btn.style.opacity = hidden ? '' : '0.5';
+    localStorage.setItem('agentorum_agents_hidden', hidden ? '0' : '1');
+  });
+})();
+
+// ---------------------------------------------------------------------------
 // Dark / light mode toggle
 // ---------------------------------------------------------------------------
 (function initTheme() {
@@ -1270,6 +1354,27 @@ function scrollToAnchoredEntry() {
     updateThemeBtn();
   });
 })();
+
+// ---------------------------------------------------------------------------
+// Browser notifications for new entries
+// ---------------------------------------------------------------------------
+function notifyNewEntry(entry) {
+  if (document.hasFocus()) return;
+  if (!('Notification' in window)) return;
+  if (Notification.permission !== 'granted') return;
+  const p = (serverConfig.participants || []).find(p => p.id === entry.author);
+  const name = p?.label || p?.name || entry.author;
+  const body = entry.body.length > 120 ? entry.body.slice(0, 117) + '...' : entry.body;
+  const n = new Notification(`${name} posted`, { body, tag: 'agentorum-entry' });
+  n.onclick = () => { window.focus(); n.close(); };
+}
+
+// Request permission on first settings click (non-intrusive)
+document.getElementById('btn-settings')?.addEventListener('click', () => {
+  if ('Notification' in window && Notification.permission === 'default') {
+    Notification.requestPermission();
+  }
+}, { once: true });
 
 // Boot — patch marked once it is loaded (it loads via CDN after this module)
 window.addEventListener('load', () => { patchMarkedForVideo(); scrollToAnchoredEntry(); });
