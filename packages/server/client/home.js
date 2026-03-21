@@ -394,7 +394,6 @@ function renderSessions() {
         newEl.className = val ? 'session-description' : 'session-description session-description-empty';
         newEl.textContent = val || 'Add notes…';
         input.replaceWith(newEl);
-        newEl.addEventListener('click', (e) => { e.stopPropagation(); newEl.dispatchEvent(new MouseEvent('click', { bubbles: false })); });
       };
       input.addEventListener('blur', save);
       input.addEventListener('keydown', (e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); input.blur(); } if (e.key === 'Escape') { input.value = current; input.blur(); } });
@@ -434,6 +433,8 @@ async function openSession(projectId, sessionId) {
     const result = await api(`/api/sessions/${projectId}/${sessionId}/open`, 'POST');
     if (result && result.redirectTo) {
       window.location.href = result.redirectTo;
+    } else {
+      setLoading(false); // No redirect — clear overlay
     }
   } catch {
     setLoading(false);
