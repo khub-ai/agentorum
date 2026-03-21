@@ -88,6 +88,7 @@
   <aside id="agents-panel">
     <div id="agents-panel-header">
       <h3>Agents</h3>
+      <button id="btn-activity-timeline" class="btn-ghost btn-sm" title="Activity timeline">📊</button>
       <button id="btn-score-trajectory" class="btn-ghost btn-sm" title="Score trajectory chart">📈</button>
     </div>
     <div id="agent-cards"></div>
@@ -105,6 +106,23 @@
     <button id="btn-add-rule">+ Add rule</button>
   </aside>
 
+</div>
+
+<!-- ── Activity Timeline ───────────────────────────────────────────────── -->
+<div id="activity-timeline" style="display:none">
+  <div id="activity-timeline-header">
+    <span id="activity-timeline-title">Activity Timeline</span>
+    <div id="activity-timeline-controls">
+      <select id="activity-timeline-bucket">
+        <option value="5">5 min</option>
+        <option value="15" selected>15 min</option>
+        <option value="60">1 hour</option>
+      </select>
+      <button id="btn-activity-timeline-close" title="Close">✕</button>
+    </div>
+  </div>
+  <canvas id="activity-timeline-canvas"></canvas>
+  <div id="activity-timeline-legend"></div>
 </div>
 
 <!-- ── Score Trajectory panel ──────────────────────────────────────────── -->

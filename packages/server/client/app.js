@@ -788,6 +788,129 @@ document.getElementById('score-trajectory-range').addEventListener('change', () 
   if (document.getElementById('score-trajectory').style.display === 'flex') renderScoreTrajectory();
 });
 
+// ---------------------------------------------------------------------------
+// Activity Timeline
+// ---------------------------------------------------------------------------
+let activityTimelineChart = null;
+
+function openActivityTimeline() {
+  document.getElementById('activity-timeline').style.display = 'flex';
+  renderActivityTimeline();
+}
+
+function closeActivityTimeline() {
+  document.getElementById('activity-timeline').style.display = 'none';
+  if (activityTimelineChart) { activityTimelineChart.destroy(); activityTimelineChart = null; }
+}
+
+function renderActivityTimeline() {
+  const bucketMin = parseInt(document.getElementById('activity-timeline-bucket').value, 10);
+  const bucketMs  = bucketMin * 60 * 1000;
+
+  if (allEntries.length === 0) return;
+
+  // Determine time range
+  const timestamps = allEntries.map(e => new Date(e.timestamp).getTime()).sort((a, b) => a - b);
+  const tMin = timestamps[0];
+  const tMax = timestamps[timestamps.length - 1];
+  const bucketCount = Math.max(1, Math.ceil((tMax - tMin) / bucketMs) + 1);
+
+  // Collect unique authors (agents + humans)
+  const authors = [...new Set(allEntries.map(e => e.author))];
+
+  // Build per-author bucket counts
+  const datasets = authors.map(author => {
+    const counts = new Array(bucketCount).fill(0);
+    allEntries.filter(e => e.author === author).forEach(e => {
+      const t = new Date(e.timestamp).getTime();
+      const idx = Math.min(Math.floor((t - tMin) / bucketMs), bucketCount - 1);
+      counts[idx]++;
+    });
+    return {
+      label: author,
+      data: counts,
+      backgroundColor: participantColor(author) + '99',
+      borderColor: participantColor(author),
+      borderWidth: 1,
+      borderRadius: 2
+    };
+  });
+
+  // Labels — time of each bucket
+  const labels = [];
+  for (let i = 0; i < bucketCount; i++) {
+    const d = new Date(tMin + i * bucketMs);
+    labels.push(d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }));
+  }
+
+  // Build legend
+  const legendEl = document.getElementById('activity-timeline-legend');
+  legendEl.innerHTML = authors.map(a =>
+    `<span><span class="legend-dot" style="background:${participantColor(a)}"></span>${a}</span>`
+  ).join('');
+
+  // Render stacked bar chart
+  if (activityTimelineChart) activityTimelineChart.destroy();
+  const ctx = document.getElementById('activity-timeline-canvas').getContext('2d');
+  const textColor = getComputedStyle(document.documentElement).getPropertyValue('--text-muted').trim() || '#888';
+  const gridColor = getComputedStyle(document.documentElement).getPropertyValue('--border').trim() || '#333';
+
+  activityTimelineChart = new Chart(ctx, {
+    type: 'bar',
+    data: { labels, datasets },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: {
+        legend: { display: false },
+        tooltip: {
+          callbacks: {
+            title: (items) => items[0]?.label || '',
+            label: (item) => `${item.dataset.label}: ${item.raw} entries`
+          }
+        }
+      },
+      scales: {
+        x: {
+          stacked: true,
+          ticks: { color: textColor, font: { size: 10 }, maxRotation: 45 },
+          grid: { color: gridColor + '33' }
+        },
+        y: {
+          stacked: true,
+          beginAtZero: true,
+          ticks: { color: textColor, font: { size: 10 }, stepSize: 1 },
+          grid: { color: gridColor + '33' }
+        }
+      },
+      onClick: (evt, elements) => {
+        if (!elements.length) return;
+        const idx = elements[0].index;
+        const bucketTime = tMin + idx * bucketMs;
+        // Find the first entry in this bucket and scroll to it
+        const target = allEntries.find(e => {
+          const t = new Date(e.timestamp).getTime();
+          return t >= bucketTime && t < bucketTime + bucketMs;
+        });
+        if (target) {
+          const el = document.querySelector(`.entry-card[data-id="${target.id}"]`);
+          if (el) el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        }
+      }
+    }
+  });
+}
+
+document.getElementById('btn-activity-timeline').addEventListener('click', () => {
+  const panel = document.getElementById('activity-timeline');
+  if (panel.style.display === 'flex') closeActivityTimeline();
+  else openActivityTimeline();
+});
+document.getElementById('btn-activity-timeline-close').addEventListener('click', closeActivityTimeline);
+document.getElementById('activity-timeline-bucket').addEventListener('change', () => {
+  if (document.getElementById('activity-timeline').style.display === 'flex') renderActivityTimeline();
+});
+
 // Agent card button delegation
 document.getElementById('agent-cards').addEventListener('click', async e => {
   const btn = e.target.closest('button');

@@ -1371,3 +1371,64 @@ label { display: flex; align-items: center; gap: 6px; cursor: pointer; }
   #score-trajectory { max-height: 60vh; }
   #score-trajectory-legend { font-size: 10px; gap: 6px; }
 }
+
+/* Activity Timeline */
+#btn-activity-timeline { font-size: 14px; padding: 2px 6px; }
+
+#activity-timeline {
+  position: fixed;
+  bottom: 0; left: var(--sidebar-w); right: var(--agents-w);
+  z-index: 300;
+  background: var(--bg-card);
+  border-top: 1px solid var(--border);
+  padding: 12px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-height: 260px;
+}
+
+#activity-timeline-header {
+  display: flex; justify-content: space-between; align-items: center;
+}
+
+#activity-timeline-title {
+  font-weight: 700; font-size: 14px; color: var(--text);
+}
+
+#activity-timeline-controls {
+  display: flex; gap: 8px; align-items: center;
+}
+
+#activity-timeline-controls select {
+  font-size: 12px; padding: 2px 6px;
+  background: var(--bg); color: var(--text);
+  border: 1px solid var(--border); border-radius: 4px;
+}
+
+#btn-activity-timeline-close {
+  background: none; border: none; cursor: pointer;
+  font-size: 16px; color: var(--text-muted); padding: 2px 6px;
+}
+
+#activity-timeline-canvas {
+  width: 100%; height: 140px;
+}
+
+#activity-timeline-legend {
+  display: flex; flex-wrap: wrap; gap: 10px;
+  font-size: 11px; color: var(--text-muted);
+}
+
+#activity-timeline-legend span {
+  display: flex; align-items: center; gap: 4px;
+}
+
+#activity-timeline-legend .legend-dot {
+  width: 8px; height: 8px; border-radius: 50%; display: inline-block;
+}
+
+@media (max-width: 860px) {
+  #activity-timeline { left: 0; right: 0; max-height: 200px; padding: 10px 12px; }
+  #activity-timeline-canvas { height: 100px; }
+}

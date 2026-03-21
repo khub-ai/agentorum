@@ -267,6 +267,8 @@ async function processChatlogChange() {
     if (fresh.length > 0) {
       broadcast({ type: 'entries_added', entries: fresh });
       for (const entry of fresh) evaluateRules(entry);
+      // Content-based routing (when routing mode is "auto")
+      for (const entry of fresh) scheduleRouterClassification(entry);
       // Rebroadcast scores whenever a new rating entry arrives
       if (fresh.some(e => e.meta?.type === 'rating')) {
         broadcast({ type: 'scores_updated', scores: computeScores(entries) });
@@ -383,12 +385,15 @@ function stopAllAgents() {
 }
 
 async function triggerAgent(participant) {
-  // Interactive and api agents are never spawned by the server.
-  // This guard is a second line of defense — evaluateRules() already skips
-  // these modes, but the /api/participants/:id/trigger route calls us directly.
-  if (participant.mode === 'interactive' || participant.mode === 'api') {
-    console.log(`[agentorum] triggerAgent: skipping ${participant.id} (mode=${participant.mode || 'interactive'})`);
+  // Interactive agents run in the user's own terminal — never spawned.
+  if (participant.mode === 'interactive') {
+    console.log(`[agentorum] triggerAgent: skipping ${participant.id} (mode=interactive)`);
     return;
+  }
+
+  // API agents use direct LLM API calls instead of CLI subprocess.
+  if (participant.mode === 'api') {
+    return triggerApiAgent(participant);
   }
 
   const raw    = await fsp.readFile(config.chatlog, 'utf8').catch(() => '');
@@ -448,6 +453,125 @@ Task: Read the chatlog above. Decide whether ${participant.id} should write a re
 `;
 }
 
+// ---------------------------------------------------------------------------
+// Direct LLM API agent backend
+// ---------------------------------------------------------------------------
+// Supports: anthropic (Claude), openai (GPT), google (Gemini)
+// API keys are read from environment variables:
+//   ANTHROPIC_API_KEY, OPENAI_API_KEY, GOOGLE_API_KEY
+// The participant config specifies: { mode: "api", apiProvider: "anthropic"|"openai"|"google", apiModel: "model-name" }
+
+async function triggerApiAgent(participant) {
+  const provider = (participant.apiProvider || 'anthropic').toLowerCase();
+  const model    = participant.apiModel || getDefaultModel(provider);
+
+  const raw    = await fsp.readFile(config.chatlog, 'utf8').catch(() => '');
+  const prompt = buildPrompt(participant, raw);
+
+  const id = participant.id;
+  agentProcesses[id] = { status: 'running', startedAt: new Date().toISOString() };
+  broadcastAgentStatus(id);
+
+  try {
+    let response;
+    if (provider === 'anthropic')    response = await callAnthropic(model, participant, prompt);
+    else if (provider === 'openai')  response = await callOpenAI(model, participant, prompt);
+    else if (provider === 'google')  response = await callGoogle(model, participant, prompt);
+    else throw new Error(`Unknown API provider: ${provider}`);
+
+    const text = (response || '').trim();
+    if (text && text !== 'NO_RESPONSE_NEEDED') {
+      const entry = formatEntry(id, text);
+      await fsp.appendFile(config.chatlog, entry, 'utf8');
+    }
+
+    agentProcesses[id] = { status: 'stopped', lastResponseAt: new Date().toISOString() };
+    broadcastAgentStatus(id);
+    return text;
+  } catch (err) {
+    console.error(`[agentorum] API agent ${id} failed:`, err.message);
+    agentProcesses[id] = { status: 'error', error: err.message };
+    broadcastAgentStatus(id);
+    return '';
+  }
+}
+
+function getDefaultModel(provider) {
+  if (provider === 'anthropic') return 'claude-sonnet-4-20250514';
+  if (provider === 'openai')    return 'gpt-4o';
+  if (provider === 'google')    return 'gemini-2.0-flash';
+  return 'claude-sonnet-4-20250514';
+}
+
+async function callAnthropic(model, participant, prompt) {
+  const apiKey = process.env.ANTHROPIC_API_KEY;
+  if (!apiKey) throw new Error('ANTHROPIC_API_KEY not set');
+
+  const sys = participant.systemPrompt?.trim() || `You are ${participant.id} in a structured multi-agent debate.`;
+  const resp = await fetch('https://api.anthropic.com/v1/messages', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'x-api-key': apiKey,
+      'anthropic-version': '2023-06-01'
+    },
+    body: JSON.stringify({
+      model,
+      max_tokens: 4096,
+      system: sys,
+      messages: [{ role: 'user', content: prompt }]
+    })
+  });
+  if (!resp.ok) throw new Error(`Anthropic API ${resp.status}: ${await resp.text()}`);
+  const data = await resp.json();
+  return data.content?.[0]?.text || '';
+}
+
+async function callOpenAI(model, participant, prompt) {
+  const apiKey = process.env.OPENAI_API_KEY;
+  if (!apiKey) throw new Error('OPENAI_API_KEY not set');
+
+  const sys = participant.systemPrompt?.trim() || `You are ${participant.id} in a structured multi-agent debate.`;
+  const resp = await fetch('https://api.openai.com/v1/chat/completions', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${apiKey}`
+    },
+    body: JSON.stringify({
+      model,
+      messages: [
+        { role: 'system', content: sys },
+        { role: 'user', content: prompt }
+      ],
+      max_tokens: 4096
+    })
+  });
+  if (!resp.ok) throw new Error(`OpenAI API ${resp.status}: ${await resp.text()}`);
+  const data = await resp.json();
+  return data.choices?.[0]?.message?.content || '';
+}
+
+async function callGoogle(model, participant, prompt) {
+  const apiKey = process.env.GOOGLE_API_KEY;
+  if (!apiKey) throw new Error('GOOGLE_API_KEY not set');
+
+  const sys = participant.systemPrompt?.trim() || `You are ${participant.id} in a structured multi-agent debate.`;
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
+  const resp = await fetch(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      system_instruction: { parts: [{ text: sys }] },
+      contents: [{ parts: [{ text: prompt }] }],
+      generationConfig: { maxOutputTokens: 4096 }
+    })
+  });
+  if (!resp.ok) throw new Error(`Google API ${resp.status}: ${await resp.text()}`);
+  const data = await resp.json();
+  return data.candidates?.[0]?.content?.parts?.[0]?.text || '';
+}
+
 function broadcastAgentStatus(id) {
   broadcast({ type: 'agent_status', agent: getAgentStatus(id) });
 }
@@ -455,12 +579,11 @@ function broadcastAgentStatus(id) {
 // ---------------------------------------------------------------------------
 // Automation rules
 // ---------------------------------------------------------------------------
-// Returns true if this participant can be triggered via the watcher/subprocess path.
+// Returns true if this participant can be triggered via the watcher/subprocess or API path.
 // 'interactive' agents run in the user's own terminal — the server must not spawn for them.
-// 'api' agents use direct LLM API calls (future) — a different trigger path will handle them.
-// Only the default watcher mode is eligible for subprocess-based triggering.
+// Both watcher (CLI subprocess) and API agents are triggerable via automation rules.
 function isWatcherTriggerable(participant) {
-  return participant.mode !== 'interactive' && participant.mode !== 'api';
+  return participant.mode !== 'interactive';
 }
 
 function evaluateRules(entry) {
@@ -493,6 +616,118 @@ function evaluateRules(entry) {
         }
       }
     }
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Lightweight Router (content-based agent triggering)
+// ---------------------------------------------------------------------------
+// When routing mode is "auto" in the config, the router classifies each new
+// entry by topic tags and triggers only agents whose respondWhen keywords
+// match. Uses Anthropic Haiku for fast, cheap classification.
+//
+// Enabled by: { "routing": "auto" } in agentorum.config.json
+// Falls back to rule-based triggering when routing is "rules" (default).
+
+let routerDebounceTimer = null;
+let routerPendingEntries = [];
+
+function scheduleRouterClassification(entry) {
+  if (config.routing !== 'auto') return;
+  routerPendingEntries.push(entry);
+  clearTimeout(routerDebounceTimer);
+  routerDebounceTimer = setTimeout(() => {
+    const batch = [...routerPendingEntries];
+    routerPendingEntries = [];
+    routeEntries(batch);
+  }, 2000); // 2-second debounce
+}
+
+async function routeEntries(entries) {
+  const apiKey = process.env.ANTHROPIC_API_KEY;
+  if (!apiKey) {
+    console.warn('[agentorum] router: ANTHROPIC_API_KEY not set, falling back to rule-based triggering');
+    return;
+  }
+
+  const triggerableAgents = (config.participants || [])
+    .filter(p => p.mode !== 'interactive' && p.mode !== 'human' && p.agent !== 'human' && p.type !== 'human');
+
+  if (triggerableAgents.length === 0) return;
+
+  // Build role directory for the router
+  const roleDir = triggerableAgents.map(p => {
+    const topics = (p.respondWhen || []).join(', ') || p.role || p.id;
+    return `- ${p.id}: ${topics}`;
+  }).join('\n');
+
+  const entryTexts = entries.map(e =>
+    `[${e.author}]: ${e.body.slice(0, 300)}`
+  ).join('\n---\n');
+
+  const routerPrompt = `You are a message router. Given the entries below and the agent role directory, output a JSON array of agent IDs that should be triggered to respond. Only include agents whose expertise is relevant to the entry content. If no agents are relevant, output an empty array.
+
+Role directory:
+${roleDir}
+
+Entries:
+${entryTexts}
+
+Output ONLY a JSON array of agent IDs, e.g.: ["SECURITY-ANALYST", "BACKEND-DEV"]`;
+
+  try {
+    const resp = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-api-key': apiKey,
+        'anthropic-version': '2023-06-01'
+      },
+      body: JSON.stringify({
+        model: 'claude-haiku-4-20250514',
+        max_tokens: 256,
+        messages: [{ role: 'user', content: routerPrompt }]
+      })
+    });
+
+    if (!resp.ok) {
+      console.warn(`[agentorum] router API error: ${resp.status}`);
+      return;
+    }
+
+    const data = await resp.json();
+    const text = data.content?.[0]?.text || '[]';
+
+    // Parse the JSON array of agent IDs
+    let agentIds;
+    try {
+      const match = text.match(/\[[\s\S]*\]/);
+      agentIds = match ? JSON.parse(match[0]) : [];
+    } catch {
+      console.warn('[agentorum] router: failed to parse response:', text);
+      return;
+    }
+
+    // Log routing decision
+    const sessionDir = path.dirname(config.chatlog);
+    const logLine = JSON.stringify({
+      timestamp: new Date().toISOString(),
+      entries: entries.map(e => e.id),
+      routed: agentIds
+    }) + '\n';
+    fsp.appendFile(path.join(sessionDir, 'routing-log.jsonl'), logLine, 'utf8').catch(() => {});
+
+    // Trigger the selected agents
+    for (const agentId of agentIds) {
+      const participant = config.participants.find(p => p.id === agentId);
+      if (participant && participant.mode !== 'interactive') {
+        triggerAgent(participant);
+      }
+    }
+
+    console.log(`[agentorum] router: triggered ${agentIds.length} agents: ${agentIds.join(', ') || '(none)'}`);
+  } catch (err) {
+    console.warn('[agentorum] router error:', err.message);
   }
 }
 
@@ -800,7 +1035,8 @@ async function handleRequest(req, res) {
         broadcast({ type: 'config_updated', config });
 
         // Refresh interactive agents' rules files with the current session token
-        await workspaceManager.regenerateRulesFiles(projectId, sessionId, CLI_PORT);
+        try { await workspaceManager.regenerateRulesFiles(projectId, sessionId, CLI_PORT); }
+        catch (rulesErr) { console.warn('[agentorum] rules regen failed (non-fatal):', rulesErr.message); }
 
         // Update session lastActive and persist as the last-used session
         await workspaceManager.updateSessionLastActive(projectId, sessionId);
@@ -808,6 +1044,7 @@ async function handleRequest(req, res) {
 
         return jsonResp(res, { ok: true, redirectTo: '/session' });
       } catch (err) {
+        console.error('[agentorum] session open error:', err);
         return jsonResp(res, { error: err.message }, 500);
       }
     }
