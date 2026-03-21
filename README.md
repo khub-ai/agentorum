@@ -1,6 +1,6 @@
 # Agentorum
 
-**The open-source, no-code platform for structured multi-agent debate — with purpose-built visualization, live data charts, full audit trail, and human-in-the-loop control. Runs out of the box, no additional software or coding required. Just bring your LLM API key. Free forever.**
+**A source-available, no-code platform for structured multi-agent debate — with purpose-built visualization, live data charts, full audit trail, and human-in-the-loop control. Runs out of the box, no additional software or coding required. Just bring your LLM API key. Free for non-commercial use.**
 
 → **[See the full roadmap and tell us what to build next](ROADMAP.md)**
 
@@ -21,9 +21,9 @@ Every other multi-agent tool routes tasks through a pipeline. Agentorum runs a *
 | LLM-agnostic (Claude, GPT, Gemini, local) | **Yes** | Vendor-locked |
 | Local data — you own everything generated | **Yes** | Cloud-stored |
 | Domain-agnostic | **Yes** | Product- or CRM-specific |
-| Open-source and free | **Yes** | No |
+| Source-available and free | **Yes** | No |
 
-Agentorum is the only tool that combines structured deliberation, rich visualization, zero-coding setup, and open-source freedom in a single package aimed at non-technical users.
+Agentorum is the only tool that combines structured deliberation, rich visualization, zero-coding setup, and source-available transparency in a single package aimed at non-technical users.
 
 ---
 
@@ -47,7 +47,7 @@ Here is what you concretely gain:
 
 **Full control, always.** You are not a passive observer. You can steer the debate at any point — inject new information, challenge a participant, redirect the conversation, or call for a synthesis. Agentorum keeps the agents on-task while you stay in the chair.
 
-**No lock-in, no cloud, no bill.** Your debate data lives in a plain-text file on your own machine. You can use any LLM you already have access to. Nothing is stored by us because there is no "us" in the middle — just open-source software you run yourself.
+**No lock-in, no cloud, no bill.** Your debate data lives in a plain-text file on your own machine. You can use any LLM you already have access to. Nothing is stored by us because there is no "us" in the middle — just self-hosted software you run yourself.
 
 **A force multiplier for coding agents.** When a single coding agent can generate more work than one human can realistically validate, bring in a second agent to check it. Two agents reviewing the same code independently — Claude Code and OpenAI Codex, for example — surface issues that neither catches alone. Agreement is a high-confidence signal; disagreement is a flag worth investigating. → [See the Software Development Review use case](usecases/software-dev-review/README.md)
 
@@ -172,7 +172,7 @@ There is nothing to install beyond Node.js. There is no cloud service. Your deba
 - **Pluggable agent backends** — connect Claude, GPT, Gemini, local models, or humans
 - **Append-only log** — plain Markdown, human-readable, version-controllable
 - **Localhost by default** — nothing leaves your machine
-- **Open-source and free** — MIT license, no subscriptions, no usage fees, no vendor lock-in
+- **Source-available and free** — PolyForm Noncommercial license, no subscriptions, no usage fees, no vendor lock-in
 
 ---
 
@@ -276,7 +276,7 @@ node packages/server/server.mjs --config examples/policy-mediation/agentorum.con
 
 Agentorum is released under the **[PolyForm Noncommercial License 1.0.0](LICENSE)**.
 
-**Free** for personal use, research, internal business use, government, education, and open-source projects — at any scale, with no strings attached.
+**Free** for personal use, research, internal business use, government, education, and non-commercial projects — at any scale, with no strings attached.
 
 **A separate commercial license is required** if you charge others for access to Agentorum, offer it as a hosted service, or bundle it into a paid product. To discuss commercial licensing, open an issue or contact us via GitHub.
 

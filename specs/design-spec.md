@@ -804,8 +804,8 @@ Automation rules define when a participant is triggered automatically. Each rule
 
 Rationale:
 - Agentorum is read-heavy and text-dense. Native APIs (camera, haptics, background audio) are not relevant.
-- Maintaining three codebases (desktop, iOS, Android) for a small open-source project is not viable.
-- App Store review cycles, sandboxing, and 30% cut conflict with the open-source, zero-cost model.
+- Maintaining three codebases (desktop, iOS, Android) for a small source-available project is not viable.
+- App Store review cycles, sandboxing, and 30% cut conflict with the source-available, zero-cost model.
 - The primary mobile use case is monitoring a debate in progress — a viewer role, not a primary input role. This is well served by a browser tab or PWA.
 
 **Implementation:**
