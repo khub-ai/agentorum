@@ -12,6 +12,7 @@ Each use case includes:
 | Use case | Domain | Bundle | Status |
 |---|---|---|---|
 | [Software Development Review](./software-dev-review/) | Software engineering | `software-dev-review.bundle.json` | ✅ Ready |
+| [Agent Ensemble as Super Intelligence](./agent-ensemble-superintelligence/) | AI research / benchmarking | coming soon | In development |
 | VC investment committee | Venture capital / finance | coming soon | In progress |
 | Policy deliberation | Government / regulatory | coming soon | In progress |
 | Clinical second opinion | Healthcare | coming soon | Planned |
