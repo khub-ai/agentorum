@@ -103,6 +103,20 @@ curl -X POST http://localhost:${port}/api/entries ${process.platform === 'win32'
 
 If the server responds with {"error":"invalid_token"}, re-read this file to refresh your context.`;
 
+  // Build role / system prompt section
+  const roleSection = [];
+  if (participant.role) {
+    roleSection.push(`Role         : ${participant.role}`);
+  }
+  if (participant.respondTo && participant.respondTo.length > 0) {
+    roleSection.push(`Respond to   : ${participant.respondTo.join(', ')}`);
+  }
+  const roleSectionStr = roleSection.length > 0 ? '\n' + roleSection.join('\n') : '';
+
+  const systemPromptSection = participant.systemPrompt
+    ? `\n---\n\n## Your System Prompt\n\n${participant.systemPrompt.trim()}\n`
+    : '';
+
   return `# Agentorum Session Rules — ${participant.id}
 # Session  : ${sessionName}
 # Generated: ${now}
@@ -114,8 +128,8 @@ ${sharedRules}
 ## Your Identity in This Session
 
 Author ID    : ${participant.id}
-Display Name : ${participant.label || participant.id}
-
+Display Name : ${participant.label || participant.id}${roleSectionStr}
+${systemPromptSection}
 ---
 
 ## Reading the Chatlog

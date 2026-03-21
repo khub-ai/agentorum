@@ -1457,6 +1457,9 @@ async function main() {
       await loadConfig(configPath);
       await loadSessionToken();
       await workspaceManager.saveLastActiveSession(projectId, sessionId);
+      // Regenerate rules files so interactive agents get fresh tokens and instructions
+      try { await workspaceManager.regenerateRulesFiles(projectId, sessionId, CLI_PORT); }
+      catch (e) { console.warn('[agentorum] rules regen on startup failed (non-fatal):', e.message); }
 
       console.log(`[agentorum] bundle   : project=${projectId} session=${sessionId}`);
     } else {
@@ -1468,6 +1471,9 @@ async function main() {
         activeSessionId  = last.sessionId;
         await loadConfig(last.configPath);
         await loadSessionToken();
+        // Regenerate rules files so interactive agents get fresh tokens and instructions
+        try { await workspaceManager.regenerateRulesFiles(last.projectId, last.sessionId, CLI_PORT); }
+        catch (e) { console.warn('[agentorum] rules regen on startup failed (non-fatal):', e.message); }
         console.log(`[agentorum] restored : project=${last.projectId} session=${last.sessionId}`);
       }
     }
