@@ -800,7 +800,7 @@ async function handleRequest(req, res) {
         broadcast({ type: 'config_updated', config });
 
         // Refresh interactive agents' rules files with the current session token
-        await workspaceManager.regenerateRulesFiles(projectId, sessionId, PORT);
+        await workspaceManager.regenerateRulesFiles(projectId, sessionId, CLI_PORT);
 
         // Update session lastActive and persist as the last-used session
         await workspaceManager.updateSessionLastActive(projectId, sessionId);
