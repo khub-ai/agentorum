@@ -1547,3 +1547,127 @@ All charts share a common visual language:
 - Primary charting library: **Chart.js** (lightweight, responsive, canvas-based, no build step required).
 - Complex layouts (force-directed graphs, argument maps): **D3.js** loaded via CDN.
 - All charts render client-side from data already available via the WebSocket connection or REST API. No server-side rendering.
+
+---
+
+## 26. Agent Coordination at Scale
+
+When an ensemble grows beyond 3-4 agents, the question of "who should respond to this entry?" becomes critical. Fixed automation rules (e.g., "when HUMAN posts, trigger CLAUDE-DEV after 3s") do not scale — they cannot route based on content, and they trigger unnecessary responses. A single omniscient MODERATOR is fragile — it becomes the intelligence bottleneck and single point of failure, defeating the purpose of a distributed ensemble.
+
+Agentorum uses a three-layer coordination architecture:
+
+### 26.1 Layer 1: Self-Selection (primary mechanism)
+
+Each agent's system prompt includes explicit respond-when / stay-silent-when criteria. When triggered, the agent reads recent entries and decides for itself whether it has something to contribute. This mirrors how real expert panels work — experts self-select into conversations they are qualified for.
+
+Scenario configs support structured self-selection fields per participant:
+
+```json
+{
+  "id": "SECURITY-ANALYST",
+  "respondWhen": [
+    "Authentication, authorization, access control",
+    "Data handling, encryption, secrets management",
+    "Input validation, injection vectors",
+    "Dependency vulnerabilities"
+  ],
+  "staySilentWhen": [
+    "UI/UX design, CSS, layout",
+    "Performance optimization unrelated to security",
+    "Business logic with no security implications"
+  ]
+}
+```
+
+These fields are injected into the agent's rules file as structured instructions. The agent retains autonomy — it may still choose to respond to an edge case not listed, or stay silent on a listed topic if it has nothing to add. The criteria are guidance, not hard routing.
+
+When uncertain, agents should post a brief "flagging for review" note rather than a full response, letting the human or a synthesizer decide whether a deep response is needed.
+
+### 26.2 Layer 2: Lightweight Router (cost optimization)
+
+A fast classification step (Haiku-class model) runs on every new entry and produces routing tags — not a decision about who responds, but a filter for who even sees the entry.
+
+Example:
+- Entry: "The API endpoint accepts user input and passes it directly to a SQL query without parameterization"
+- Router output: `{ tags: ["security", "backend", "database"] }`
+- Trigger: SECURITY-ANALYST, BACKEND-DEV, DBA
+- Skip: UI-DESIGNER, PRODUCT-MANAGER, DEVOPS
+
+The router consults a role directory derived from the scenario config — each participant's `respondWhen` topics are matched against the entry content. This is a classification task, not a reasoning task, so a small fast model handles it reliably.
+
+Implementation:
+- Enabled by setting `"routing": "auto"` in the scenario config (default remains `"routing": "rules"` for backward compatibility with fixed automation rules).
+- The router runs as server-side infrastructure — it is not a participant, does not appear in the chatlog, and does not consume a participant slot.
+- Router results are logged to `routing-log.jsonl` in the session directory for auditability.
+- The router call is debounced (waits 2 seconds after the last entry before routing) to batch rapid-fire entries.
+
+### 26.3 Layer 3: Gap Detection (safety net)
+
+A periodic background check (every 5 entries or 2 minutes, whichever comes first) scans for entries that received zero responses from any agent. When a gap is detected:
+
+1. The system broadcasts to all agents: "The following entry received no response. If it falls within your area, please review: [entry summary]."
+2. If still no response after one broadcast cycle, the system flags the entry for the human with a visual indicator in the chatlog UI.
+
+Gap detection is not an LLM call — it is a simple temporal query: find entries in the last N that have no subsequent entry referencing or following them within the expected response window.
+
+### 26.4 The MODERATOR Role (process control, not routing)
+
+A MODERATOR participant is valuable but serves a different purpose than routing. The MODERATOR handles meta-cognition about the conversation:
+
+- Summarizing areas of agreement and disagreement
+- Redirecting the conversation when it drifts from the original question
+- Escalating unresolved conflicts to the human
+- Calling for synthesis when sufficient evidence has been presented
+- Tracking which questions from the original prompt remain unaddressed
+
+The MODERATOR does not need domain expertise in every field. It needs expertise in conversation dynamics: what has been covered, what remains open, where consensus exists, and where conflict persists.
+
+The MODERATOR's system prompt should include:
+- The list of all participants and their roles (from the scenario config)
+- Instructions to track coverage of the original question
+- Authority to call on specific agents by name when their area is relevant but they have not responded
+- Instructions to post periodic status summaries (every N entries or when a major topic shift occurs)
+
+### 26.5 System Prompt Library
+
+Each agent role type requires a carefully designed system prompt that encodes domain expertise, response criteria, and interaction style. These prompts are stored as reusable templates in the scenario system.
+
+Planned role types and their prompt characteristics:
+
+| Role Type | Domain | Key Prompt Elements |
+|---|---|---|
+| SOLVER | General problem-solving | Independent analysis, commit to an answer, show full reasoning |
+| CRITIC | Adversarial review | Find flaws, challenge assumptions, demand evidence, never agree without verification |
+| SYNTHESIZER | Consensus-building | Read all positions, identify agreement/disagreement, produce unified summary |
+| MODERATOR | Process control | Track coverage, manage turn-taking, escalate, redirect |
+| DOMAIN-EXPERT | Configurable specialization | Deep knowledge in one area, respond-when/stay-silent-when criteria, cite evidence |
+| RED-TEAM | Security/adversarial | Attack the proposal, find vulnerabilities, stress-test assumptions |
+| FACT-CHECKER | Verification | Cross-reference claims, flag unsupported assertions, request sources |
+| DEVIL'S-ADVOCATE | Contrarian | Argue the opposite position regardless of personal assessment, force steel-manning |
+| JUDGE | Evaluation | Score arguments on defined criteria, declare winners, remain neutral |
+| INDUCTOR | Knowledge extraction | Observe exchanges, extract general rules, persist learnings (requires Knowledge Fabric) |
+| LEARNER | Adaptive participant | Start with minimal knowledge, improve through adversarial feedback, apply induced rules |
+| ATTACKER | Adversarial pressure | Generate challenging counterexamples, probe edge cases, force deeper reasoning |
+
+Each role type will have:
+- A base system prompt template (Markdown, stored in `scenarios/prompts/`)
+- Configurable parameters (e.g., domain specialization, aggressiveness level for CRITIC)
+- Respond-when / stay-silent-when defaults appropriate for the role
+- Example interaction patterns showing the expected behavior
+
+The prompt library is designed to be composable — a scenario can mix role types freely, and a single agent can combine aspects of multiple roles (e.g., a CRITIC-JUDGE hybrid that both attacks arguments and scores them).
+
+### 26.6 Coordination Flow Summary
+
+The full coordination flow for a new entry in a large ensemble:
+
+1. Entry arrives in the chatlog
+2. If `routing: "auto"`: the lightweight router classifies the entry and produces tags (Haiku-class call, ~100ms)
+3. Tagged agents are triggered (their CLI process or API call receives the new entry context)
+4. Each triggered agent reads recent entries and self-selects: respond, flag for review, or stay silent
+5. Responses are posted to the chatlog
+6. If a MODERATOR is configured, it observes the exchange and may post process-control entries
+7. Gap detection runs periodically and broadcasts missed entries
+8. The human can override at any point — poke a specific agent, redirect the conversation, or post directly
+
+This architecture scales from 2 agents (where the router is unnecessary and self-selection handles everything) to 20+ agents (where the router prevents cost explosion and gap detection ensures nothing is missed).
