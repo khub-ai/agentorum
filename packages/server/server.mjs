@@ -384,7 +384,7 @@ function stopAllAgents() {
 
 async function triggerAgent(participant) {
   // Interactive and api agents are never spawned by the server.
-  // This guard is a second line of defence — evaluateRules() already skips
+  // This guard is a second line of defense — evaluateRules() already skips
   // these modes, but the /api/participants/:id/trigger route calls us directly.
   if (participant.mode === 'interactive' || participant.mode === 'api') {
     console.log(`[agentorum] triggerAgent: skipping ${participant.id} (mode=${participant.mode || 'interactive'})`);
@@ -916,7 +916,7 @@ async function handleRequest(req, res) {
           const sessionDir = activeConfigPath ? path.dirname(activeConfigPath) : '';
           return jsonResp(res, {
             error: 'invalid_token',
-            message: `Session token incorrect. Re-initialise your agent: Read this file and confirm your role: ${path.join(sessionDir, `rules-${author}.txt`)}`
+            message: `Session token incorrect. Re-initialize your agent: Read this file and confirm your role: ${path.join(sessionDir, `rules-${author}.txt`)}`
           }, 401);
         }
       }

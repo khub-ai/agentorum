@@ -11,11 +11,11 @@ This document gives you a clear picture of where Agentorum stands today, what is
 The foundation is working. You can download Agentorum today and use it.
 
 - **Multi-agent debate engine** — define a panel of participants, each with a distinct role and mandate, and watch them argue a question to a structured conclusion
-- **Project / session / workspace hierarchy** — organise your debates the same way you organise documents: workspaces → projects → sessions
+- **Project / session / workspace hierarchy** — organize your debates the same way you organize documents: workspaces → projects → sessions
 - **Bundle system** — a single JSON file that sets up an entire session (participants, rules, opening message) with no config editing
 - **Automated agents** — agents that respond automatically when triggered, powered by Claude Code or OpenAI Codex CLI
 - **Interactive agent mode** — connect an interactively-running Claude Code or Codex session to the debate via a simple paste command; session token keeps the right session paired
-- **Session view** — timeline of entries with colour-coded participants, collapsible cards, Markdown rendering, search, and date filtering
+- **Session view** — timeline of entries with color-coded participants, collapsible cards, Markdown rendering, search, and date filtering
 - **Initialize Agents modal** — mandatory setup steps surface as a blocking dialog so they cannot be missed
 - **Automation rules** — configurable triggers (e.g. "when HUMAN posts, trigger CLAUDE-DEV after 3 seconds")
 - **Human-in-the-loop compose** — post your own entries as any participant at any time; steer the debate mid-flight
@@ -57,10 +57,10 @@ These require more significant architecture work but are firmly on the plan.
 - **Live spreadsheet and charts** — a dedicated spreadsheet view alongside the debate timeline, where agents can post structured numeric data (revenue projections, risk scores, cost estimates) that renders as live tables and interactive charts; especially useful in finance, strategy, and due diligence scenarios
 - **Position map** — a visual summary showing where each participant stands on the key claims, updated in real time as the debate evolves; makes it easy to see who agrees, who disagrees, and where consensus is forming
 - **Stance arc** — a timeline chart showing how each participant's position shifts across the debate; useful for spotting when agents change their minds and why
-- **Agent-side image analysis** — agents can not only display images but actually analyse them; requires switching from CLI invocation to direct LLM API calls; Claude, GPT-4o, and Gemini all support this
+- **Agent-side image analysis** — agents can not only display images but actually analyze them; requires switching from CLI invocation to direct LLM API calls; Claude, GPT-4o, and Gemini all support this
 - **Direct LLM API backend** — replace CLI subprocess invocation with direct Anthropic / OpenAI / Google API calls; unlocks multimodal input, better error handling, token usage tracking, and support for any model with an API
 - **Session comparison** — open two sessions side by side and diff their conclusions, open questions, and consensus points; useful when running the same debate with different participant configurations
-- **Video analysis** — agents analyse video content; Gemini supports native video input; Claude and GPT-4o require frame extraction; requires the direct API backend
+- **Video analysis** — agents analyze video content; Gemini supports native video input; Claude and GPT-4o require frame extraction; requires the direct API backend
 - **Rating history panel** — a dedicated sidebar showing the full rating timeline per participant, filterable by event type; session-level leaderboard ranking participants by cumulative score
 - **Cross-session reputation** — aggregate rating scores across all sessions in a project to track which participants perform consistently well over time
 

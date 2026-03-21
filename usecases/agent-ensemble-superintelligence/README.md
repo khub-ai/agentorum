@@ -11,13 +11,13 @@ State-of-the-art AI models are tested in isolation. A benchmark score tells you 
 
 What if the test subject is not one model, but an ensemble — a structured group of agents with different strengths, deliberating together toward a shared answer?
 
-This use case is a live experiment. We run a recognised, difficult benchmark through an Agentorum ensemble and compare the result against published single-model scores on the same benchmark. The hypothesis: **structured multi-agent deliberation produces answers that are more accurate, more robust, and better calibrated than any individual participant could produce alone.**
+This use case is a live experiment. We run a recognized, difficult benchmark through an Agentorum ensemble and compare the result against published single-model scores on the same benchmark. The hypothesis: **structured multi-agent deliberation produces answers that are more accurate, more robust, and better calibrated than any individual participant could produce alone.**
 
 ---
 
 ## Why this matters
 
-Most discussions of AI "superintelligence" imagine a single, vastly more capable model. This use case explores an alternative path: **collective intelligence through structure**. A group of specialised agents — each strong in different areas, each able to challenge the others — coordinating toward a shared answer.
+Most discussions of AI "superintelligence" imagine a single, vastly more capable model. This use case explores an alternative path: **collective intelligence through structure**. A group of specialized agents — each strong in different areas, each able to challenge the others — coordinating toward a shared answer.
 
 This is not a new idea. It is how expert panels, scientific peer review, and legal adversarial proceedings work. What is new is the ability to operationalise it at speed, with any combination of models, with a full audit trail of how the answer was reached.
 

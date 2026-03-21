@@ -269,7 +269,7 @@ function appendEntryCard(entry) {
   const el   = document.getElementById('entries');
   const card = makeCard(entry);
 
-  // One-shot arrival animation: slide up + participant-coloured flash.
+  // One-shot arrival animation: slide up + participant-colored flash.
   // Applied as inline style so it wins over all CSS class-based animations
   // without needing !important.  On completion the inline style is cleared
   // and the normal age-class animations (age-fresh pulse etc.) take over.

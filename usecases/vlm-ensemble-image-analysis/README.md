@@ -6,7 +6,7 @@
 
 ## The idea
 
-Vision-Language Models (VLMs) do not analyse an image the way a human does — scanning methodically, adjusting focus, re-examining. They process the entire image in a single forward pass through a visual encoder, and their attention is not uniformly distributed. Some regions of the image receive strong attention; others are underweighted. When a critical detail falls into a low-attention region, the model's reasoning is built on an incomplete foundation — and it typically has no awareness that it missed anything.
+Vision-Language Models (VLMs) do not analyze an image the way a human does — scanning methodically, adjusting focus, re-examining. They process the entire image in a single forward pass through a visual encoder, and their attention is not uniformly distributed. Some regions of the image receive strong attention; others are underweighted. When a critical detail falls into a low-attention region, the model's reasoning is built on an incomplete foundation — and it typically has no awareness that it missed anything.
 
 The fix is structural: **run multiple VLMs on the same image independently, then deliberate over their combined observations.** Different models have different visual encoders, trained on different data with different architectures. Their attention distributions are not correlated. A region that VLM-A underweights is not necessarily underweighted by VLM-B. When their descriptions diverge, that divergence is itself a signal — something in the image was ambiguous enough that two independently-trained models interpreted it differently, and that is exactly where a human reviewer's attention should go.
 
@@ -91,7 +91,7 @@ The right domain has three properties: (1) the stakes are high enough that a mis
 - Use cases: chest X-ray finding detection, pathology slide analysis, radiology second opinion
 - Why VLM attention matters: subtle findings (early nodule, hairline fracture) are exactly the high-stakes missed-detail scenario
 - Image sources: NIH ChestX-ray14 (112K public domain), RSNA datasets (Kaggle), CheXpert (Stanford)
-- Note: VLMs are trained to refuse or heavily hedge on medical questions. This domain has the most compelling stakes but the most implementation friction. Deferred until VLM refusal behaviour is better understood in the context of this use case.
+- Note: VLMs are trained to refuse or heavily hedge on medical questions. This domain has the most compelling stakes but the most implementation friction. Deferred until VLM refusal behavior is better understood in the context of this use case.
 
 ---
 

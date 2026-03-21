@@ -12,13 +12,13 @@ Generative Adversarial Networks (GANs) demonstrated that two neural networks arr
 
 This use case applies the same structural insight to LLM agent ensembles — but with a fundamentally different learning mechanism.
 
-In GANs, learning happens through backpropagation: gradients flow, weights update, behaviour changes. LLM agents do not update their weights during inference. A naive adversarial arrangement between LLM agents produces better outputs within a single session (adversarial refinement), but neither agent retains anything afterward. The session ends, the context is discarded, and neither agent is any better at the task than when it started.
+In GANs, learning happens through backpropagation: gradients flow, weights update, behavior changes. LLM agents do not update their weights during inference. A naive adversarial arrangement between LLM agents produces better outputs within a single session (adversarial refinement), but neither agent retains anything afterward. The session ends, the context is discarded, and neither agent is any better at the task than when it started.
 
-**Knowledge Fabric changes this.** The [Persistable Interactive Learning](https://github.com/khub-ai/khub-knowledge-fabric) framework provides agent-side induction: agents observe patterns in their interactions, derive general rules from those patterns, and persist those rules as explicit knowledge artifacts. In subsequent sessions, agents read their accumulated knowledge before engaging — and their behaviour is measurably different because of it.
+**Knowledge Fabric changes this.** The [Persistable Interactive Learning](https://github.com/khub-ai/khub-knowledge-fabric) framework provides agent-side induction: agents observe patterns in their interactions, derive general rules from those patterns, and persist those rules as explicit knowledge artifacts. In subsequent sessions, agents read their accumulated knowledge before engaging — and their behavior is measurably different because of it.
 
 With Knowledge Fabric providing the learning substrate and Agentorum providing the adversarial orchestration, the complete loop becomes:
 
-**Adversarial pressure → inductive reasoning → persisted knowledge → improved behaviour → harder adversarial pressure → deeper induction → …**
+**Adversarial pressure → inductive reasoning → persisted knowledge → improved behavior → harder adversarial pressure → deeper induction → …**
 
 This is structurally equivalent to the GAN training loop, with symbolic induction replacing gradient descent.
 
@@ -32,7 +32,7 @@ The GAN parallel is useful as motivation, but the Knowledge Fabric mechanism has
 
 In a GAN, what the Generator "learned" is encoded in millions of opaque weight values. You can observe that it produces better outputs, but you cannot inspect the learned knowledge directly.
 
-In Knowledge Fabric, what the agent learned is an explicit artifact — a rule, a pattern, a corrected misconception. You can read it, audit it, and understand why the agent's behaviour changed. When an adversarial session produces a rule like "When estimating structural load, account for wind shear in buildings above 12 storeys — my initial calculation omitted this and ATTACKER demonstrated the failure case," that is an interpretable, auditable learning outcome.
+In Knowledge Fabric, what the agent learned is an explicit artifact — a rule, a pattern, a corrected misconception. You can read it, audit it, and understand why the agent's behavior changed. When an adversarial session produces a rule like "When estimating structural load, account for wind shear in buildings above 12 stories — my initial calculation omitted this and ATTACKER demonstrated the failure case," that is an interpretable, auditable learning outcome.
 
 ### 2. Transferability
 
@@ -55,7 +55,7 @@ Five participants arranged in an adversarial loop with a learning layer.
 | **LEARNER** | The agent under adversarial training | Attempts to solve problems in the target domain. Starts with baseline knowledge. Induces rules from its failures and from ATTACKER's challenges. |
 | **ATTACKER** | The adversarial counterpart | Systematically probes LEARNER's solutions for flaws: logical gaps, missing edge cases, incorrect assumptions, unstated dependencies. Its job is to find weaknesses, not to be agreeable. |
 | **JUDGE** | Adjudicator | Evaluates each LEARNER ↔ ATTACKER exchange. Determines whether ATTACKER's challenge is valid or spurious. Prevents sycophantic collapse (LEARNER conceding to incorrect attacks). |
-| **INDUCTOR** | Knowledge extraction | After each round, reviews the exchange and extracts generalisable rules. Writes them to the LEARNER's persistent knowledge store via Knowledge Fabric. |
+| **INDUCTOR** | Knowledge extraction | After each round, reviews the exchange and extracts generalizable rules. Writes them to the LEARNER's persistent knowledge store via Knowledge Fabric. |
 | **HUMAN** | Session designer and reviewer | Selects problems, sets the domain, reviews induced knowledge, and steers the adversarial process. |
 
 ### Why the JUDGE is essential
@@ -69,7 +69,7 @@ Without a JUDGE, ATTACKER can challenge a correct answer and LEARNER may capitul
 
 ### Why the INDUCTOR is separate from the LEARNER
 
-Induction — the extraction of general rules from specific cases — is a distinct cognitive task from problem-solving. Combining them in a single agent risks conflation: the LEARNER might induce rules that are too specific to the current problem, or too eager to generalise from a single failure. The INDUCTOR sees the full exchange at arm's length and produces cleaner, more generalisable rules.
+Induction — the extraction of general rules from specific cases — is a distinct cognitive task from problem-solving. Combining them in a single agent risks conflation: the LEARNER might induce rules that are too specific to the current problem, or too eager to generalize from a single failure. The INDUCTOR sees the full exchange at arm's length and produces cleaner, more generalizable rules.
 
 ---
 
@@ -90,7 +90,7 @@ For each problem:
    - If ATTACKER's challenge is valid and LEARNER's revision is correct → **learning event** (LEARNER improved)
    - If ATTACKER's challenge is valid but LEARNER incorrectly conceded a correct answer → **sycophancy event** (flagged; no induction)
    - If ATTACKER's challenge is spurious → **noise event** (dismissed)
-5. **INDUCTOR** reviews all learning events from this round and extracts generalisable rules. These are persisted to Knowledge Fabric.
+5. **INDUCTOR** reviews all learning events from this round and extracts generalizable rules. These are persisted to Knowledge Fabric.
 
 ### Phase 3: Post-training assessment
 
@@ -125,7 +125,7 @@ To be precise about terminology:
 - **Not RAG** — the knowledge store is not a vector database of retrieved documents; it is a structured collection of induced rules
 - **It is symbolic induction** — the agent derives general rules from specific cases, persists them as explicit knowledge, and applies them in future sessions via in-context conditioning
 
-The closest analogue in traditional ML is **case-based reasoning** augmented with **rule induction** — but operating entirely through natural language rather than formal logic.
+The closest analog in traditional ML is **case-based reasoning** augmented with **rule induction** — but operating entirely through natural language rather than formal logic.
 
 ---
 
@@ -168,7 +168,7 @@ The adversarial learning pattern is domain-general, but some domains are better 
 | **Baseline → post-training accuracy** | Did the adversarial process improve LEARNER's performance? |
 | **Adversarial vs. control** | Did adversarial pressure produce faster/deeper learning than the same amount of non-adversarial practice? |
 | **Knowledge accumulation curve** | How many rules were induced per round? Does the rate plateau? |
-| **Rule quality** | What fraction of induced rules are correct, generalisable, and applied in subsequent sessions? |
+| **Rule quality** | What fraction of induced rules are correct, generalizable, and applied in subsequent sessions? |
 | **Sycophancy rate** | How often did LEARNER incorrectly concede to ATTACKER? Did the JUDGE successfully prevent these from becoming induced rules? |
 
 ### Secondary metrics
@@ -188,7 +188,7 @@ This use case is conceptually distinct from the other ensemble use cases, and th
 |---|---|---|---|
 | [Super Intelligence](../agent-ensemble-superintelligence/) | Cooperative | Accuracy through collective reasoning | No (single-session) |
 | [VLM Image Analysis](../vlm-ensemble-image-analysis/) | Cooperative | Completeness through independent observation | No (single-session) |
-| **Adversarial Learning** | Competitive | Robustness through attack/defence + persistent knowledge | **Yes** (cross-session via Knowledge Fabric) |
+| **Adversarial Learning** | Competitive | Robustness through attack/defense + persistent knowledge | **Yes** (cross-session via Knowledge Fabric) |
 
 The natural progression:
 1. **Super Intelligence** demonstrates that multi-agent structure improves output quality within a single session

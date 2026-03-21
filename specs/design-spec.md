@@ -155,7 +155,7 @@ The header line is the only required element. Metadata lines and the body are op
 
 **Entry ID:** Each entry is assigned a stable identifier computed as the first 16 hex characters of `SHA-256(timestamp + ":" + author + ":" + raw_content)`. Including the raw content in the hash makes the ID collision-proof: two entries from the same author in the same second — possible from rapid posts, retries, or overlapping automation — will always have different content and therefore different IDs. The ID is stable across server restarts because the chatlog is append-only and the content of an existing entry never changes.
 
-**Author ID format:** Uppercase alphanumeric string, hyphens allowed. Examples: `BULL-VC`, `PARTNER`, `SYNTH`, `ECON`. No spaces. No special characters beyond hyphens. The convention `DEV#N` from the original codebase is deprecated in favour of descriptive role names.
+**Author ID format:** Uppercase alphanumeric string, hyphens allowed. Examples: `BULL-VC`, `PARTNER`, `SYNTH`, `ECON`. No spaces. No special characters beyond hyphens. The convention `DEV#N` from the original codebase is deprecated in favor of descriptive role names.
 
 ### 5.2 Metadata Block
 
@@ -171,7 +171,7 @@ Metadata is expressed as `@key: value` lines immediately following the header, b
 Entry body begins here.
 ```
 
-Metadata keys are lowercase alphanumeric. Values are plain strings. Parsers must treat unrecognised keys as unknown but preserve them — unknown keys must not cause the entry to be rejected or the metadata to be discarded.
+Metadata keys are lowercase alphanumeric. Values are plain strings. Parsers must treat unrecognized keys as unknown but preserve them — unknown keys must not cause the entry to be rejected or the metadata to be discarded.
 
 **Reserved fields (v1 spec, implementation deferred to v2 unless noted):**
 
@@ -503,10 +503,10 @@ Below 900px: sidebar and right panel collapse to tabs.
 
 Each entry renders as a card with:
 
-- **Header bar:** Author pill (coloured by participant), timestamp, timeago label, entry type badge, stance badge (bull/bear/neutral/synthesis)
+- **Header bar:** Author pill (colored by participant), timestamp, timeago label, entry type badge, stance badge (bull/bear/neutral/synthesis)
 - **Collapse toggle:** Click header to collapse/expand. Collapsed: 2-line snippet + line count
 - **Body:** Full Markdown rendering (via `marked`)
-- **Freshness indicators:** "● Live" (under 45s), "New" (under 5min) — coloured border matching author colour
+- **Freshness indicators:** "● Live" (under 45s), "New" (under 5min) — colored border matching author color
 - **Reply indicator:** If `replyTo` is set, a small "↩ replying to AUTHOR-ID" link that scrolls to the parent entry
 - **Data card variant:** If `type === "data"`, renders the body as a live table + chart instead of Markdown prose (see Section 8.5)
 
@@ -615,7 +615,7 @@ Anchored at the bottom of the main area (toggle visibility via keyboard shortcut
 
 ### 8.9 Theming
 
-Light and dark themes via `prefers-color-scheme` media query. All participant colours are defined in the config and must meet WCAG AA contrast ratios in both themes. A default colour palette of eight colours is provided; custom colours can be set per participant.
+Light and dark themes via `prefers-color-scheme` media query. All participant colors are defined in the config and must meet WCAG AA contrast ratios in both themes. A default color palette of eight colors is provided; custom colors can be set per participant.
 
 ---
 
@@ -839,7 +839,7 @@ Rationale:
 
 ### 14.1 Three-Level Hierarchy
 
-Agentorum organises user data in three levels:
+Agentorum organizes user data in three levels:
 
 | Level | Concept | Analogy |
 |---|---|---|
@@ -1225,7 +1225,7 @@ Scores are computed fresh on each chatlog load and re-broadcast via `scores_upda
 - Muted `±0` for zero (only shown if at least one rating event exists)
 - Hidden if the participant has no rating events yet
 
-**Rating pips on entry cards** — small colour-coded chips in the entry header showing `+2 catch` or `−1 omission` for each rating that references that entry via `@entryRef`. Positive events are green; negative are red.
+**Rating pips on entry cards** — small color-coded chips in the entry header showing `+2 catch` or `−1 omission` for each rating that references that entry via `@entryRef`. Positive events are green; negative are red.
 
 **Rate button** — a `★` button appears in each entry header on hover (hidden for `@type: rating` entries themselves, to prevent recursive meta-ratings). Clicking opens the rate modal.
 
