@@ -1501,3 +1501,49 @@ A 📋 icon button appears on hover in each entry card header. Clicking it copie
 ### 24.4 Session Archive / Unarchive
 
 Each session row in the sessions panel shows a 🗂 archive button. Clicking it sets `archived: true` in `session.json` via `PATCH /api/sessions/:pid/:sid/archive` with `{ archived: true }`. Archived sessions are excluded from the default `renderSessions()` list. A "Show archived (N)" toggle link at the bottom of the sessions panel reveals them with a muted visual style. Clicking the archive button on an archived session unarchives it (`{ archived: false }`). The active session cannot be archived.
+
+---
+
+### 25. Visualization Design Principles
+
+All visualizations in Agentorum follow these design principles:
+
+#### 25.1 Responsive-first layout
+
+Every visualization must work well across the full range of screen sizes:
+
+- **Phone (≤ 520px):** Charts collapse to a compact, scrollable strip. Interactive controls use touch-friendly 44×44px targets. Labels are abbreviated. Tooltips appear on tap-and-hold. The visualization occupies the full viewport width with no side panels.
+- **Tablet (520–860px):** Charts render at full fidelity in a single-column layout. Legends and controls stack below the chart rather than beside it.
+- **Desktop (> 860px):** Charts expand to fill available space. Legends and controls sit alongside or above the chart. Hover tooltips show rich detail. Multiple visualizations can be tiled when screen width allows.
+
+Design rule: every chart must be usable (not just visible) on a phone. If a visualization requires hover to function, it must have a tap-and-hold equivalent.
+
+#### 25.2 Maximum visual impact at every size
+
+When more screen real estate is available, visualizations should expand to use it — not just center in a small box:
+
+- Charts use `width: 100%` and compute height from the container, not fixed pixel values.
+- Axes, labels, and tick counts scale with container width (more ticks on wider charts, fewer on narrow).
+- On large displays (> 1400px), visualizations may use a split layout: chart on the left, detail/filter panel on the right.
+- Color palettes are designed for both light and dark themes, using the existing CSS custom property system (`var(--text)`, `var(--bg-card)`, etc.).
+
+#### 25.3 Data density and progressive disclosure
+
+- Show the most important signal at a glance (the trend line, the hotspot, the outlier).
+- Reveal detail on interaction (hover/tap for exact values, click to drill down).
+- Provide controls to filter, zoom, or change time range — but default to a sensible "show everything" view.
+- Never sacrifice clarity for completeness. If 50 participants make a chart unreadable, show the top 10 and offer an "expand" control.
+
+#### 25.4 Consistent styling
+
+All charts share a common visual language:
+- Participant colors match their chatlog entry colors (drawn from the same `participantColor()` function).
+- Chart backgrounds use `var(--bg-card)` with `var(--border)` for grid lines.
+- Font sizes follow the same scale as the rest of the UI (11px for annotations, 13px for labels, 15px for titles).
+- Animations are subtle and fast (200ms transitions, no gratuitous motion).
+
+#### 25.5 Technology choices
+
+- Primary charting library: **Chart.js** (lightweight, responsive, canvas-based, no build step required).
+- Complex layouts (force-directed graphs, argument maps): **D3.js** loaded via CDN.
+- All charts render client-side from data already available via the WebSocket connection or REST API. No server-side rendering.

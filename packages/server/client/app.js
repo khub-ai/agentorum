@@ -93,6 +93,8 @@ function connect() {
         applyScores(msg.scores || {});
         renderAgentCards();   // refresh score badges
         renderAll();          // refresh entry pips
+        // Auto-refresh trajectory chart if open
+        if (document.getElementById('score-trajectory').style.display === 'flex') renderScoreTrajectory();
         break;
       case 'agent_nudge':
         // An automation rule fired for an interactive agent — the server can't
@@ -625,6 +627,165 @@ function closeScoreModal() {
 document.getElementById('btn-score-close').addEventListener('click', closeScoreModal);
 document.getElementById('score-modal').addEventListener('click', e => {
   if (e.target === e.currentTarget) closeScoreModal();
+});
+
+// ---------------------------------------------------------------------------
+// Score Trajectory chart
+// ---------------------------------------------------------------------------
+let _scoreChart = null;
+
+function openScoreTrajectory() {
+  const panel = document.getElementById('score-trajectory');
+  panel.style.display = 'flex';
+  renderScoreTrajectory();
+}
+
+function closeScoreTrajectory() {
+  document.getElementById('score-trajectory').style.display = 'none';
+  if (_scoreChart) { _scoreChart.destroy(); _scoreChart = null; }
+}
+
+function renderScoreTrajectory() {
+  if (typeof Chart === 'undefined') return;
+
+  const rangeEl = document.getElementById('score-trajectory-range');
+  const range   = rangeEl.value;
+
+  // Collect all rating events across all participants, with running totals
+  const participantIds = Object.keys(scoreMap);
+  if (participantIds.length === 0) return;
+
+  // Build per-participant time-series: array of { x: eventIndex, y: cumulativeScore }
+  const datasets = [];
+  const legendEl = document.getElementById('score-trajectory-legend');
+  legendEl.innerHTML = '';
+
+  // First, gather ALL events across all participants and sort by timestamp
+  let allEvents = [];
+  for (const pid of participantIds) {
+    const sc = scoreMap[pid];
+    if (!sc?.events?.length) continue;
+    for (const ev of sc.events) {
+      allEvents.push({ pid, score: ev.score, ts: ev.ts || '', event: ev.event, rater: ev.rater });
+    }
+  }
+  allEvents.sort((a, b) => (a.ts || '').localeCompare(b.ts || ''));
+
+  // Apply range filter
+  if (range === 'last20') allEvents = allEvents.slice(-20);
+  else if (range === 'last50') allEvents = allEvents.slice(-50);
+
+  // Build cumulative totals per participant
+  const cumulative = {};   // pid → running total
+  const series     = {};   // pid → [{ x, y, label }]
+  for (const pid of participantIds) {
+    cumulative[pid] = 0;
+    series[pid]     = [{ x: 0, y: 0 }]; // start at zero
+  }
+
+  allEvents.forEach((ev, i) => {
+    cumulative[ev.pid] += ev.score;
+    // Add data point for the rated participant
+    series[ev.pid].push({
+      x:     i + 1,
+      y:     cumulative[ev.pid],
+      label: `${ev.event} (${ev.score > 0 ? '+' : ''}${ev.score}) by ${ev.rater}`
+    });
+    // Carry forward other participants at this index (so lines extend)
+    for (const pid of participantIds) {
+      if (pid !== ev.pid && series[pid]) {
+        const last = series[pid][series[pid].length - 1];
+        if (last.x < i + 1) {
+          series[pid].push({ x: i + 1, y: cumulative[pid] });
+        }
+      }
+    }
+  });
+
+  // Build Chart.js datasets
+  for (const pid of participantIds) {
+    if (!series[pid] || series[pid].length <= 1) continue;
+    const color = participantColor(pid);
+    datasets.push({
+      label:           pid,
+      data:            series[pid].map(p => ({ x: p.x, y: p.y })),
+      borderColor:     color,
+      backgroundColor: color + '22',
+      borderWidth:     2,
+      pointRadius:     3,
+      pointHoverRadius: 6,
+      fill:            false,
+      tension:         0.2,
+      _tooltips:       series[pid]
+    });
+
+    // Legend entry
+    const item = document.createElement('span');
+    item.className = 'score-legend-item';
+    item.innerHTML = `<span class="score-legend-dot" style="background:${color}"></span>${pid}`;
+    legendEl.appendChild(item);
+  }
+
+  if (datasets.length === 0) {
+    legendEl.innerHTML = '<span style="opacity:.6">No rating events yet</span>';
+    return;
+  }
+
+  // Destroy previous chart
+  if (_scoreChart) _scoreChart.destroy();
+
+  const ctx = document.getElementById('score-trajectory-canvas').getContext('2d');
+
+  // Resolve CSS vars for chart styling
+  const cs   = getComputedStyle(document.documentElement);
+  const textColor  = cs.getPropertyValue('--text-muted').trim() || '#8892a4';
+  const gridColor  = cs.getPropertyValue('--border').trim() || '#2a2d3a';
+
+  _scoreChart = new Chart(ctx, {
+    type: 'line',
+    data: { datasets },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      interaction: { mode: 'nearest', intersect: false },
+      plugins: {
+        legend: { display: false },
+        tooltip: {
+          callbacks: {
+            label: (context) => {
+              const ds = context.dataset;
+              const pt = ds._tooltips?.[context.dataIndex];
+              const scoreStr = context.parsed.y > 0 ? `+${context.parsed.y}` : `${context.parsed.y}`;
+              return pt?.label ? `${ds.label}: ${scoreStr} — ${pt.label}` : `${ds.label}: ${scoreStr}`;
+            }
+          }
+        }
+      },
+      scales: {
+        x: {
+          type: 'linear',
+          title: { display: true, text: 'Event #', color: textColor, font: { size: 11 } },
+          ticks: { color: textColor, font: { size: 10 }, stepSize: 1 },
+          grid: { color: gridColor + '44' }
+        },
+        y: {
+          title: { display: true, text: 'Cumulative Score', color: textColor, font: { size: 11 } },
+          ticks: { color: textColor, font: { size: 10 } },
+          grid: { color: gridColor + '44' }
+        }
+      }
+    }
+  });
+}
+
+document.getElementById('btn-score-trajectory').addEventListener('click', () => {
+  const panel = document.getElementById('score-trajectory');
+  if (panel.style.display === 'flex') closeScoreTrajectory();
+  else openScoreTrajectory();
+});
+document.getElementById('btn-score-trajectory-close').addEventListener('click', closeScoreTrajectory);
+document.getElementById('score-trajectory-range').addEventListener('change', () => {
+  if (document.getElementById('score-trajectory').style.display === 'flex') renderScoreTrajectory();
 });
 
 // Agent card button delegation

@@ -1274,3 +1274,100 @@ label { display: flex; align-items: center; gap: 6px; cursor: pointer; }
   white-space: nowrap;
   margin-left: 4px;
 }
+
+/* ---------------------------------------------------------------------------
+   Score Trajectory chart
+   ------------------------------------------------------------------------- */
+#agents-panel-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 6px;
+}
+#agents-panel-header h3 { margin: 0; }
+#btn-score-trajectory { font-size: 14px; padding: 2px 6px; }
+
+#score-trajectory {
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  z-index: 300;
+  background: var(--bg-card);
+  border-top: 1px solid var(--border);
+  padding: 12px 16px;
+  box-shadow: 0 -4px 20px rgba(0,0,0,.25);
+  max-height: 45vh;
+  display: flex;
+  flex-direction: column;
+}
+#score-trajectory-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 8px;
+  flex-shrink: 0;
+}
+#score-trajectory-title {
+  font-weight: 700;
+  font-size: 14px;
+  color: var(--text);
+}
+#score-trajectory-controls {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+#score-trajectory-controls select {
+  font-size: 12px;
+  padding: 2px 6px;
+  border-radius: 4px;
+  border: 1px solid var(--border);
+  background: var(--bg);
+  color: var(--text);
+}
+#btn-score-trajectory-close {
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  font-size: 16px;
+  padding: 2px 6px;
+}
+#score-trajectory-canvas {
+  flex: 1;
+  min-height: 120px;
+  max-height: 35vh;
+  width: 100%;
+}
+#score-trajectory-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 6px;
+  font-size: 11px;
+  color: var(--text-muted);
+  flex-shrink: 0;
+}
+.score-legend-item {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  cursor: pointer;
+}
+.score-legend-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+/* Mobile responsive */
+@media (max-width: 860px) {
+  #score-trajectory { padding: 10px 12px; max-height: 50vh; }
+  #score-trajectory-title { font-size: 13px; }
+}
+@media (max-width: 520px) {
+  #score-trajectory { max-height: 60vh; }
+  #score-trajectory-legend { font-size: 10px; gap: 6px; }
+}
