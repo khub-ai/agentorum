@@ -498,6 +498,7 @@ export class WorkspaceManager {
     }
 
     const interactive = (cfg.participants || []).filter(p => p.mode === 'interactive');
+    const updated = [];
     for (const p of interactive) {
       const rulesFileName = `rules-${p.id}.txt`;
       const rulesFilePath = path.join(sessionDir, rulesFileName);
@@ -511,7 +512,9 @@ export class WorkspaceManager {
         sessionName
       });
       await fs.writeFile(rulesFilePath, content, 'utf8').catch(() => {});
+      updated.push({ id: p.id, rulesFilePath });
     }
+    return { chatlogPath, updated };
   }
 
   async updateSessionLastActive(projectId, sessionId) {

@@ -1035,8 +1035,19 @@ async function handleRequest(req, res) {
         broadcast({ type: 'config_updated', config });
 
         // Refresh interactive agents' rules files with the current session token
-        try { await workspaceManager.regenerateRulesFiles(projectId, sessionId, CLI_PORT); }
-        catch (rulesErr) { console.warn('[agentorum] rules regen failed (non-fatal):', rulesErr.message); }
+        // and notify them via the chatlog to re-read.
+        try {
+          const result = await workspaceManager.regenerateRulesFiles(projectId, sessionId, CLI_PORT);
+          if (result && result.updated.length > 0 && result.chatlogPath) {
+            const lines = result.updated.map(a =>
+              `@${a.id}: Your rules file has been updated. Please re-read:\n  ${a.rulesFilePath}`
+            );
+            const body = `Rules files refreshed for this session.\n\n${lines.join('\n\n')}`;
+            await fsp.appendFile(result.chatlogPath, formatEntry('SYSTEM', body), 'utf8');
+          }
+        } catch (rulesErr) {
+          console.warn('[agentorum] rules regen failed (non-fatal):', rulesErr.message);
+        }
 
         // Update session lastActive and persist as the last-used session
         await workspaceManager.updateSessionLastActive(projectId, sessionId);
