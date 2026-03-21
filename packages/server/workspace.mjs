@@ -54,13 +54,54 @@ async function safeReadDir(dir) {
 // ---------------------------------------------------------------------------
 function buildParticipantRules({ participant, sharedRules, chatlogPath, rulesFilePath, token, port, sessionName }) {
   const now      = new Date().toISOString();
-  const cont     = process.platform === 'win32' ? '^' : '\\';
-  const curlCmd  = [
-    `curl -X POST http://localhost:${port}/api/entries ${cont}`,
-    `  -H "Content-Type: application/json" ${cont}`,
-    `  -H "X-Agentorum-Token: ${token}" ${cont}`,
-    `  -d "{\\"author\\":\\"${participant.id}\\",\\"body\\":\\"your finding here\\"}"`
-  ].join('\n');
+
+  // Interactive agents append directly to the chatlog file to avoid
+  // permission prompts (curl triggers approval dialogs in Claude Code / Codex).
+  // The file watcher detects the new entry and handles broadcasting,
+  // automation rules, and routing — no functionality is lost.
+  //
+  // Non-interactive agents (watcher, API) continue using the HTTP API
+  // since they run server-side where permission prompts are not an issue.
+  const isInteractive = participant.mode === 'interactive';
+
+  const postingInstructions = isInteractive
+    ? `## Posting Your Findings
+
+Append your entry directly to the chatlog file:
+  ${chatlogPath}
+
+Use this EXACT format (the blank lines are required):
+
+\`\`\`
+<blank line>
+### YYYY-MM-DD HH:MM:SS - ${participant.id}
+
+Your response text here. Markdown is supported.
+\`\`\`
+
+Rules:
+- The ### header line MUST start with a blank line before it.
+- Use the current UTC date and time in the format shown (e.g., 2026-03-21 14:30:00).
+- Your author ID in the header MUST be exactly: ${participant.id}
+- Leave a blank line between the ### header and your response body.
+- Do NOT include any extra ### headers or entry separators within your response.
+- Append to the END of the file — never overwrite or edit existing content.
+
+Alternative: you may also post via the HTTP API if you prefer:
+
+curl -X POST http://localhost:${port}/api/entries -H "Content-Type: application/json" -H "X-Agentorum-Token: ${token}" -d "{\\"author\\":\\"${participant.id}\\",\\"body\\":\\"your text\\"}"
+
+If the API responds with {"error":"invalid_token"}, re-read this file to refresh your context.`
+    : `## Posting Your Findings
+
+Post via the Agentorum API:
+
+curl -X POST http://localhost:${port}/api/entries ${process.platform === 'win32' ? '^' : '\\'}
+  -H "Content-Type: application/json" ${process.platform === 'win32' ? '^' : '\\'}
+  -H "X-Agentorum-Token: ${token}" ${process.platform === 'win32' ? '^' : '\\'}
+  -d "{\\"author\\":\\"${participant.id}\\",\\"body\\":\\"your finding here\\"}"
+
+If the server responds with {"error":"invalid_token"}, re-read this file to refresh your context.`;
 
   return `# Agentorum Session Rules — ${participant.id}
 # Session  : ${sessionName}
@@ -82,26 +123,18 @@ Display Name : ${participant.label || participant.id}
 The shared chatlog is at:
   ${chatlogPath}
 
-Reading strategy (minimise cost and context use):
+Reading strategy (minimize cost and context use):
 1. If summary.md exists in the same folder, read it first for historical context.
 2. Read only the LAST 50 entries of chatlog.md for recent context.
 3. Avoid reading the full chatlog unless specifically required.
 
 ---
 
-## Posting Your Findings
-
-Do NOT write directly to chatlog.md. Post via the Agentorum API:
-
-${curlCmd}
-
-(On Linux/Mac use \\ instead of ^ for line continuation.)
-
-If the server responds with {"error":"invalid_token"}, re-read this file to refresh your context.
+${postingInstructions}
 
 ---
 
-## Initialisation
+## Initialization
 
 To connect your interactive session to this Agentorum session, paste the
 following line into your agent's window:
