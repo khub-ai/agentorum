@@ -1671,3 +1671,50 @@ The full coordination flow for a new entry in a large ensemble:
 8. The human can override at any point — poke a specific agent, redirect the conversation, or post directly
 
 This architecture scales from 2 agents (where the router is unnecessary and self-selection handles everything) to 20+ agents (where the router prevents cost explosion and gap detection ensures nothing is missed).
+
+## 27. Rules File Refresh Signaling
+
+### 27.1 The Problem
+
+Interactive agents (Claude Code, Codex running in the user's terminal) read their rules file once when initialized via the "Read this file and confirm your role" paste command. If the rules file is regenerated later — for example when a session is reopened, a token refreshes, or shared rules are edited — the interactive agent continues operating from stale context with no awareness that the file has changed.
+
+### 27.2 Solution: Chatlog-Based Signaling
+
+The most reliable channel to reach an interactive agent is the one it is already watching: the chatlog. When `regenerateRulesFiles()` runs, the server automatically posts a SYSTEM entry to the chatlog addressing each affected agent by name:
+
+```
+### 2026-03-21 06:30:00 - SYSTEM
+
+Rules files refreshed for this session.
+
+@CLAUDE-DEV: Your rules file has been updated. Please re-read:
+  C:\Users\kaihu\.agentorum\projects\...\rules-CLAUDE-DEV.txt
+
+@CODEX-DEV: Your rules file has been updated. Please re-read:
+  C:\Users\kaihu\.agentorum\projects\...\rules-CODEX-DEV.txt
+```
+
+Because each agent's rules file instructs it to read the last 50 entries of the chatlog before responding, the agent will see this SYSTEM entry on its next action and re-read the updated rules file.
+
+### 27.3 Implementation Details
+
+- `regenerateRulesFiles()` in `workspace.mjs` now returns `{ chatlogPath, updated: [{ id, rulesFilePath }] }` so the server knows which agents were affected.
+- The server (`server.mjs`) posts the SYSTEM entry via `formatEntry('SYSTEM', body)` appended to the chatlog immediately after successful rules regeneration.
+- The SYSTEM entry is a regular chatlog entry visible in the UI — the human can see that rules were refreshed and which agents were notified.
+- If `regenerateRulesFiles()` fails (no config, no session file), no SYSTEM entry is posted and the failure is logged as a non-fatal warning.
+
+### 27.4 When Rules Are Regenerated
+
+Rules files are regenerated in the following situations:
+
+| Trigger | Mechanism |
+|---|---|
+| Session opened from Projects page | `POST /api/sessions/:pid/:sid/open` calls `regenerateRulesFiles()` |
+| Server startup with workspace restoration | Startup flow calls `regenerateRulesFiles()` for the restored session |
+| Session token refresh | Token change triggers rules regen to update the `X-Agentorum-Token` header in each rules file |
+
+### 27.5 Existing Fallback
+
+The rules file itself includes a secondary signal: "If the server responds with `{"error":"invalid_token"}`, re-read this file to refresh your context." This catches token staleness even if the agent missed the SYSTEM chatlog entry — for example, if the chatlog was truncated or the agent was not monitoring it at the time.
+
+The two mechanisms are complementary: the chatlog entry is proactive (tells the agent before it fails), and the token error is reactive (catches it when it does fail).
