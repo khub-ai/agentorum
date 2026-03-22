@@ -174,30 +174,34 @@ def show_r1_proposals(entries: list[SolverEntry]) -> None:
 # ---------------------------------------------------------------------------
 
 def show_critic_results(entries: list[SolverEntry], critic: CriticVerdict) -> None:
-    """Display each solver's proposal with its CRITIC verdict (green/red border)."""
+    """Compact verdict table — no grids repeated (already shown in R1)."""
     console.print(Rule("[bold yellow]Round 2 — CRITIC Verdicts[/bold yellow]", style="yellow"))
-    panels = []
+
+    t = Table(show_header=True, box=box.SIMPLE, header_style="bold yellow")
+    t.add_column("Agent", style="bold")
+    t.add_column("Verdict", justify="center")
+    t.add_column("Confidence", justify="center")
+    t.add_column("Rule (R1)", style="dim", no_wrap=False, max_width=70)
+
     for e in entries:
         verdict = critic.verdicts.get(e.agent, "?")
-        vs = _VERDICT_STYLE.get(verdict, "dim")
-        border = _VERDICT_BORDER.get(verdict, "yellow")
-        rule_text = e.rule[:140] + ("…" if len(e.rule) > 140 else "")
-        body = Text()
-        body.append_text(_render_grid(e.grid))
-        body.append(f"\n\n{rule_text}", style="dim")
-        panels.append(Panel(
-            body,
-            title=f"{e.agent.replace('SOLVER-', '')}  [{vs}]{verdict}[/{vs}]",
-            border_style=border,
-            expand=False,
-        ))
-    console.print(Columns(panels, padding=(0, 2)))
+        vs = _VERDICT_STYLE.get(verdict, "")
+        cs = _CONF_STYLE.get(e.confidence, "")
+        t.add_row(
+            e.agent.replace("SOLVER-", ""),
+            f"[{vs}]{verdict}[/{vs}]",
+            f"[{cs}]{e.confidence}[/{cs}]",
+            e.rule[:100] + ("…" if len(e.rule) > 100 else ""),
+        )
+    console.print(t)
 
     if critic.notes:
+        # First 400 chars — enough to see what failed without scrolling forever
         console.print(Panel(
-            Text(critic.notes[:500], style="dim"),
+            Text(critic.notes[:400], style="dim"),
             title="CRITIC notes",
             border_style="yellow",
+            padding=(0, 1),
         ))
     console.print()
 
@@ -211,33 +215,40 @@ def show_r3_proposals(
     r3: list[SolverEntry],
     critic: Optional[CriticVerdict],
 ) -> None:
-    """Show R1 → R3 evolution for each solver."""
+    """
+    Show R3 revised grids only — R1 grids were already shown.
+    Flags each solver as REVISED or UNCHANGED relative to R1.
+    """
+    from grid_tools import grids_equal
+
     console.print(Rule("[bold blue]Round 3 — Revised Proposals[/bold blue]", style="blue"))
     r1_map = {e.agent: e for e in r1}
+    panels = []
 
     for e3 in r3:
         e1 = r1_map.get(e3.agent)
         verdict = critic.verdicts.get(e3.agent, "?") if critic else "?"
-        vs = _VERDICT_STYLE.get(verdict, "dim")
+        vs = _VERDICT_STYLE.get(verdict, "")
         cs = _CONF_STYLE.get(e3.confidence, "")
         short = e3.agent.replace("SOLVER-", "")
 
-        panels = [
-            _grid_panel(
-                e1.grid if e1 else None,
-                title=f"R1: {short}  [{vs}]{verdict}[/{vs}]",
-                border="dim",
-            ),
-            Panel(Text("→", style="bold dim"), border_style="", expand=False),
-            _grid_panel(
-                e3.grid,
-                title=f"R3: {short}  [{cs}]{e3.confidence}[/{cs}]",
-                border="blue",
-                footer=e3.rule[:80] + ("…" if len(e3.rule) > 80 else ""),
-            ),
-        ]
-        console.print(Columns(panels, padding=(0, 1)))
+        changed = not (e1 and e1.grid and e3.grid and grids_equal(e1.grid, e3.grid))
+        delta = "[green]REVISED[/green]" if changed else "[dim]UNCHANGED[/dim]"
+        rule_text = e3.rule[:100] + ("…" if len(e3.rule) > 100 else "")
 
+        body = Text()
+        body.append_text(_render_grid(e3.grid))
+        body.append(f"\n{rule_text}", style="dim")
+
+        panels.append(Panel(
+            body,
+            title=f"{short}  [{cs}]{e3.confidence}[/{cs}]  {delta}",
+            subtitle=f"R1 was [{vs}]{verdict}[/{vs}]",
+            border_style="blue" if changed else "dim",
+            expand=False,
+        ))
+
+    console.print(Columns(panels, padding=(0, 2)))
     console.print()
 
 

@@ -126,13 +126,15 @@ async def run_ensemble(
 
     prior_knowledge = knowledge_base.format_for_prompt()
 
-    def log(msg: str) -> None:
-        if verbose:
+    def log(msg: str, force: bool = False) -> None:
+        # In human mode the display panels already show per-round detail;
+        # suppress noisy per-entry text logs unless forced.
+        if verbose and (force or not human_in_loop):
             print(msg)
 
-    log(f"\n{'─'*50}")
-    log(f"Task: {task_id}  ({meta.train_pairs} demos, test {meta.test_shape[0]}×{meta.test_shape[1]})")
-    log(f"Model: {DEFAULT_MODEL}  |  Prior KB: {knowledge_base.stats()}")
+    log(f"\n{'─'*50}", force=True)
+    log(f"Task: {task_id}  ({meta.train_pairs} demos, test {meta.test_shape[0]}×{meta.test_shape[1]})", force=True)
+    log(f"Model: {DEFAULT_MODEL}  |  Prior KB: {knowledge_base.stats()}", force=True)
 
     # ------------------------------------------------------------------
     # Checkpoint 0 — Show puzzle, ask for human hypothesis
@@ -147,7 +149,7 @@ async def run_ensemble(
     # ------------------------------------------------------------------
     # Round 1 — Parallel solver proposals
     # ------------------------------------------------------------------
-    log("Round 1: solvers proposing…")
+    log("Round 1: solvers proposing…", force=True)
     t_r1 = time.time()
     r1_entries = await run_solvers_round1(
         task,
@@ -155,7 +157,7 @@ async def run_ensemble(
         human_hypothesis=human_hypothesis,
     )
     meta.solvers_r1 = r1_entries
-    log(f"  Done in {time.time()-t_r1:.1f}s")
+    log(f"  Done in {time.time()-t_r1:.1f}s", force=True)
     for e in r1_entries:
         shape_str = summarize(e.grid) if e.grid else "(no grid)"
         log(f"  {e.agent}: {e.confidence}  rule={e.rule[:60]}  grid={shape_str}")
@@ -167,15 +169,15 @@ async def run_ensemble(
     # Convergence check
     early_converge = False
     if _all_converged(r1_entries):
-        log("  → All solvers CONVERGED in Round 1, running CRITIC to confirm…")
+        log("  → All solvers CONVERGED in Round 1, running CRITIC to confirm…", force=True)
 
     # ------------------------------------------------------------------
     # Round 2 — CRITIC
     # ------------------------------------------------------------------
-    log("Round 2: CRITIC evaluating…")
+    log("Round 2: CRITIC evaluating…", force=True)
     critic_verdict = await run_critic(task, r1_entries)
     meta.critic = critic_verdict
-    log(f"  Verdicts: {critic_verdict.verdicts}")
+    log(f"  Verdicts: {critic_verdict.verdicts}", force=True)
 
     all_pass = all(v == "PASS" for v in critic_verdict.verdicts.values())
 
@@ -196,7 +198,7 @@ async def run_ensemble(
         # ------------------------------------------------------------------
         # Round 3 — Solver revisions
         # ------------------------------------------------------------------
-        log("Round 3: solvers revising…")
+        log("Round 3: solvers revising…", force=True)
         t_r3 = time.time()
 
         r3_entries = await run_solvers_round3(
@@ -205,7 +207,7 @@ async def run_ensemble(
             human_insight=human_r3_insight,
         )
         meta.solvers_r3 = r3_entries
-        log(f"  Done in {time.time()-t_r3:.1f}s")
+        log(f"  Done in {time.time()-t_r3:.1f}s", force=True)
         for e in r3_entries:
             shape_str = summarize(e.grid) if e.grid else "(no grid)"
             log(f"  {e.agent}: {e.confidence}  rule={e.rule[:60]}  grid={shape_str}")
@@ -216,13 +218,13 @@ async def run_ensemble(
         disp.show_r3_proposals(r1_entries, r3_entries, critic_verdict)
         human_mediator_insight = disp.human_pre_mediator_checkpoint()
         if human_mediator_insight:
-            log(f"  Human mediator insight: {human_mediator_insight[:80]}")
+            log(f"  Human mediator insight: {human_mediator_insight[:80]}", force=True)
             knowledge_base.add_human_insight(human_mediator_insight, tasks=[task_id])
 
     # ------------------------------------------------------------------
     # Round 4 — MEDIATOR
     # ------------------------------------------------------------------
-    log(f"Round {'3 (early)' if early_converge else '4'}: MEDIATOR deciding…")
+    log(f"Round {'3 (early)' if early_converge else '4'}: MEDIATOR deciding…", force=True)
     mediator_result = await run_mediator(
         task=task,
         r1_entries=r1_entries,
@@ -234,7 +236,7 @@ async def run_ensemble(
     )
     meta.mediator = mediator_result
     grid_str = summarize(mediator_result.answer) if mediator_result.answer else "(no grid)"
-    log(f"  Answer: {grid_str}")
+    log(f"  Answer: {grid_str}", force=True)
 
     # ------------------------------------------------------------------
     # Finalize metadata
@@ -250,9 +252,9 @@ async def run_ensemble(
         )
         mediator_result.kb_updates = kb_counts
         if any(kb_counts.values()):
-            log(f"  KB updated: {kb_counts}")
+            log(f"  KB updated: {kb_counts}", force=True)
 
-    if verbose:
+    if verbose and not human_in_loop:
         print_task_summary(meta, expected)
 
     # Checkpoint 4 — Final result
