@@ -179,16 +179,17 @@ function highlight(text, query) {
 // Entry rendering
 // ---------------------------------------------------------------------------
 function parseEntryTime(timestamp) {
-  // Server generates UTC via toISOString(); interactive agents may write local time.
-  // Try 'Z' (UTC) first; if that yields a future date, fall back to local interpretation.
-  const utc   = new Date(timestamp.replace(' ', 'T') + 'Z');
+  // Timestamps may be UTC (from server's toISOString()) or local (from interactive
+  // agents writing directly to the chatlog).  We cannot tell them apart from the
+  // string alone, so we interpret as **local time** — this is correct for interactive
+  // agents, and for server entries the error is exactly the user's UTC offset, which
+  // is far less confusing than the reverse (interpreting local times as UTC makes
+  // entries jump hours into the past/future).
   const local = new Date(timestamp.replace(' ', 'T'));
-  const now   = Date.now();
-  // Pick whichever is not in the future; prefer UTC when both are valid
-  if (utc.getTime() <= now) return utc.getTime();
-  if (local.getTime() <= now) return local.getTime();
-  // Both in the future (clock skew) — return the closer one
-  return Math.max(utc.getTime(), local.getTime());
+  if (!isNaN(local.getTime())) return local.getTime();
+  // Fallback: try with Z suffix
+  const utc = new Date(timestamp.replace(' ', 'T') + 'Z');
+  return isNaN(utc.getTime()) ? Date.now() : utc.getTime();
 }
 
 function ageClass(timestamp) {

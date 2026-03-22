@@ -189,7 +189,10 @@ function parseEntries(content) {
 }
 
 function formatEntry(participantId, body, meta = {}) {
-  const ts = new Date().toISOString().replace('T', ' ').slice(0, 19);
+  // Use local time so timestamps are consistent with interactive agents
+  // (which write local time directly). This avoids mixed UTC/local confusion.
+  const d = new Date();
+  const ts = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')} ${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}:${String(d.getSeconds()).padStart(2,'0')}`;
   const metaLines = Object.entries(meta).map(([k, v]) => `@${k}: ${v}`).join('\n');
   const metaBlock = metaLines ? metaLines + '\n' : '';
   return `\n### ${ts} - ${participantId}\n\n${metaBlock}${body}\n`;
