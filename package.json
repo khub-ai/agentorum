@@ -26,8 +26,8 @@
     "arc":      "node usecases/arc-agi-ensemble/run.mjs",
     "arc:human":"node usecases/arc-agi-ensemble/run.mjs --human --charts --charts-dir usecases/arc-agi-ensemble/charts",
 
-    "arc:py":      "bash usecases/arc-agi-ensemble/run-python.sh",
-    "arc:py:human":"bash usecases/arc-agi-ensemble/run-python.sh --human"
+    "arc:py":      "node usecases/arc-agi-ensemble/run-python.mjs",
+    "arc:py:human":"node usecases/arc-agi-ensemble/run-python.mjs --human"
   },
   "devDependencies": {
     "electron":         "^33.0.0",
