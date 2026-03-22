@@ -19,7 +19,9 @@ ARC-AGI puzzles require discovering a transformation rule from a few input→out
 | **SOLVER-PROCEDURAL** | Step-by-step algorithms (for-each-cell rules, coordinate math) | Proposes a rule, defends or revises after criticism |
 | **SOLVER-ANALOGICAL** | Pattern classification (flood-fill? stamp? sort? extraction?) | Proposes a rule, defends or revises after criticism |
 | **CRITIC** | Verification — tests each rule against every demo pair | Reports PASS/FAIL per solver, identifies specific failing cells |
-| **MEDIATOR** | Final decision + knowledge generalization | Picks the best-supported answer, extracts lessons for future tasks |
+| **MEDIATOR** | Final decision + knowledge generalization | Picks the best-supported answer, extracts lessons for future tasks, can inject human insights into the debate |
+
+The MEDIATOR was originally named "JUDGE" but was renamed to reflect its broader mandate: it does not just decide — it also **generalizes patterns into a growing knowledge base**, applies knowledge from prior tasks, guides debate direction, and can escalate to a human when the ensemble is stuck.
 
 ## Debate protocol
 
@@ -28,12 +30,58 @@ Round 1:  Three solvers independently propose a rule + output grid     (parallel
           → Convergence check: if all three agree, CRITIC confirms
 Round 2:  CRITIC evaluates each proposal against all demo pairs
 Round 3:  Solvers revise based on CRITIC feedback + each other's work  (parallel)
-Round 4:  MEDIATOR reads full debate, produces final answer
+Round 4:  MEDIATOR reads full debate, produces final answer + updates KB
 ```
 
 If all solvers converge in Round 1 and CRITIC confirms, the debate short-circuits to save cost.
 
-## API endpoint
+## Design decisions
+
+### Reasoning only — no code execution (for now)
+
+The solvers reason about grids in natural language + JSON. Python tooling exists (see `python/grid_tools.py`) for post-hoc analysis and evaluation, but the agents themselves do not execute code during the debate. This was chosen to:
+- Keep the debate fast and cost-predictable
+- Avoid the complexity of sandboxed execution in Round 1
+- Let the ensemble validate itself — if code were the oracle, it would undercut the debate
+
+Python code execution for solvers can be added in a later phase once the pure-reasoning baseline is established.
+
+### Human is part of the ensemble
+
+For research and evaluation runs, a human operator may inject insights into the debate at any point. Two mechanisms:
+1. **Stalemate detection** — if the ensemble fails to converge after Round 3, the Python harness can pause and prompt the operator for a hint before the MEDIATOR makes its final call
+2. **Knowledge base seeding** — human insights can be added to `knowledge.json` directly and will be read by all agents at the start of the next task
+
+This mirrors how expert human judgment is still invaluable even when the AI ensemble is capable.
+
+### Knowledge Fabric
+
+The MEDIATOR writes generalizable lessons to a persistent `knowledge.json` after each solved puzzle. Future tasks start with this context, so the ensemble accumulates transferable knowledge across runs:
+
+```json
+{
+  "patterns": [
+    { "name": "column-gravity", "description": "Non-background cells fall to the bottom of their column.",
+      "trigger_cues": ["floating cells", "consistent downward shift"], "confirmed_tasks": ["1e0a9b12"] }
+  ],
+  "failure_modes": [
+    { "description": "Mistook row-gravity for column-gravity on symmetric input.",
+      "lesson": "Always check BOTH axes in the demo pairs." }
+  ],
+  "human_insights": []
+}
+```
+
+### Python for research tooling, Node.js for the API server
+
+| Layer | Language | Reason |
+|---|---|---|
+| Agentorum UI + `/api/ensemble` REST endpoint | Node.js | Already exists; integrates with the broader platform |
+| Test harness, grid tools, evaluation, visualization | Python | numpy, matplotlib, rich — better fit for data science work |
+
+When deeper UI integration is needed, the Python tooling can be exposed as a microservice with the Node server proxying to it.
+
+## API endpoint (Node.js / Agentorum)
 
 ```
 POST /api/ensemble
@@ -63,7 +111,7 @@ Content-Type: application/json
   "debate": [
     { "round": 1, "agent": "SOLVER-SPATIAL", "content": "..." },
     { "round": 1, "agent": "SOLVER-PROCEDURAL", "content": "..." },
-    ...
+    "..."
   ],
   "metadata": {
     "rounds": 4,
@@ -74,7 +122,7 @@ Content-Type: application/json
 }
 ```
 
-## Running the test harness
+## Running the Node test harness
 
 Prerequisites:
 - Agentorum server running (`npm start` from `packages/server/`)
@@ -98,9 +146,50 @@ node usecases/arc-agi-ensemble/test-harness.mjs \
   --limit 5 --output my-results.json
 ```
 
+## Running the Python harness (research)
+
+Prerequisites:
+- Python 3.10+ with packages from `python/requirements.txt`
+- `ANTHROPIC_API_KEY` environment variable set
+
+```bash
+cd usecases/arc-agi-ensemble/python
+
+# Install dependencies (first time)
+pip install -r requirements.txt
+
+# Run a single task
+python harness.py --task-id 1e0a9b12
+
+# Run 10 tasks with charts saved per task
+python harness.py --limit 10 --charts --charts-dir charts/
+
+# Enable human-in-the-loop on stalemates
+python harness.py --limit 20 --human --output results.json
+```
+
+### Visualizations
+
+The Python harness can generate four chart types:
+
+| Chart | Description |
+|---|---|
+| **Hypothesis Grid Evolution** | Each solver's proposed grid at R1 and R3, next to the expected output |
+| **Debate Flow Diagram** | Agent × round timeline with confidence/PASS/FAIL coloring |
+| **Learning Curve** | Cumulative accuracy and cell accuracy over tasks, with KB pattern count overlay |
+| **Ensemble vs Solo** | Bar chart comparing ensemble accuracy against individual solver baselines |
+
+## First test result
+
+Task `1e0a9b12` (column-wise gravity, 5×5 grid, 3 demo pairs):
+- All three solvers **converged in Round 1**
+- CRITIC **confirmed** — Round 3 skipped (convergence shortcut triggered)
+- MEDIATOR produced the correct answer
+- Duration: **40.7 seconds**  ✓ CORRECT
+
 ## Cost estimate
 
-Each task requires 8 API calls in the full 4-round protocol (3 solvers × 2 rounds + CRITIC + MEDIATOR). With Claude Sonnet at ~$3/MTok input, ~$15/MTok output:
+Each task requires 8 API calls in the full 4-round protocol (3 solvers × 2 rounds + CRITIC + MEDIATOR). Early convergence reduces this to 5 calls. With Claude Sonnet at ~$3/MTok input, ~$15/MTok output:
 
 | Scale | Estimated cost | Duration |
 |---|---|---|
@@ -116,12 +205,21 @@ Convergence shortcut reduces cost on easy tasks (where all solvers agree immedia
 ```
 usecases/arc-agi-ensemble/
 ├── README.md                          ← this file
-├── arc-agi-ensemble.scenario.json     ← scenario configuration
-├── test-harness.mjs                   ← automated test runner
-└── prompts/
-    ├── solver-spatial.md              ← visual/geometric reasoning
-    ├── solver-procedural.md           ← algorithmic step-by-step reasoning
-    ├── solver-analogical.md           ← pattern classification reasoning
-    ├── critic.md                      ← verification and challenge
-    └── mediator.md                    ← final decision + knowledge extraction
+├── arc-agi-ensemble.scenario.json     ← scenario configuration (Agentorum)
+├── test-harness.mjs                   ← Node.js automated test runner
+├── prompts/
+│   ├── solver-spatial.md              ← visual/geometric reasoning
+│   ├── solver-procedural.md           ← algorithmic step-by-step reasoning
+│   ├── solver-analogical.md           ← pattern classification reasoning
+│   ├── critic.md                      ← verification and challenge
+│   └── mediator.md                    ← final decision + knowledge extraction
+└── python/                            ← research tooling (standalone)
+    ├── requirements.txt
+    ├── harness.py                     ← CLI test runner
+    ├── ensemble.py                    ← debate orchestrator
+    ├── agents.py                      ← async Anthropic API calls per agent
+    ├── grid_tools.py                  ← numpy grid operations
+    ├── knowledge.py                   ← persistent knowledge base
+    ├── metadata.py                    ← structured per-round metadata capture
+    └── visualize.py                   ← matplotlib/plotly charts
 ```
