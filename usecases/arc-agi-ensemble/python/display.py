@@ -119,8 +119,9 @@ def _grid_panel(grid: Optional[Grid], title: str, border: str = "dim",
 # Checkpoint 0 — Puzzle display
 # ---------------------------------------------------------------------------
 
-def show_puzzle(task: dict, task_id: str) -> None:
-    """Show all demo pairs and the test input before the debate starts."""
+def show_puzzle(task: dict, task_id: str,
+                expected: Optional[Grid] = None) -> None:
+    """Show all demo pairs, the test input, and (if known) the expected output."""
     console.print()
     console.print(Rule(f"[bold cyan]PUZZLE  {task_id}[/bold cyan]", style="cyan"))
 
@@ -139,9 +140,16 @@ def show_puzzle(task: dict, task_id: str) -> None:
 
     test_inp = task["test"][0]["input"] if task.get("test") else None
     console.print()
-    console.print(_grid_panel(test_inp,
-                              title="[cyan]TEST INPUT — what should the output be?[/cyan]",
-                              border="cyan"))
+    test_panels = [
+        _grid_panel(test_inp,
+                    title="[cyan]TEST INPUT[/cyan]",
+                    border="cyan"),
+    ]
+    if expected is not None:
+        test_panels.append(_grid_panel(expected,
+                                       title="[green]CORRECT OUTPUT[/green]",
+                                       border="green"))
+    console.print(Columns(test_panels, padding=(0, 2)))
     console.print()
 
 
@@ -173,8 +181,9 @@ def show_r1_proposals(entries: list[SolverEntry]) -> None:
 # Checkpoint 2 — CRITIC verdicts
 # ---------------------------------------------------------------------------
 
-def show_critic_results(entries: list[SolverEntry], critic: CriticVerdict) -> None:
-    """Compact verdict table — no grids repeated (already shown in R1)."""
+def show_critic_results(entries: list[SolverEntry], critic: CriticVerdict,
+                        expected: Optional[Grid] = None) -> None:
+    """Compact verdict table with optional expected-output reference."""
     console.print(Rule("[bold yellow]Round 2 — CRITIC Verdicts[/bold yellow]", style="yellow"))
 
     t = Table(show_header=True, box=box.SIMPLE, header_style="bold yellow")
@@ -195,14 +204,20 @@ def show_critic_results(entries: list[SolverEntry], critic: CriticVerdict) -> No
         )
     console.print(t)
 
+    row = []
     if critic.notes:
-        # First 400 chars — enough to see what failed without scrolling forever
-        console.print(Panel(
+        row.append(Panel(
             Text(critic.notes[:400], style="dim"),
             title="CRITIC notes",
             border_style="yellow",
             padding=(0, 1),
+            expand=False,
         ))
+    if expected is not None:
+        row.append(_grid_panel(expected, title="[green]CORRECT OUTPUT[/green]",
+                               border="green"))
+    if row:
+        console.print(Columns(row, padding=(0, 2)))
     console.print()
 
 
@@ -214,12 +229,13 @@ def show_r3_proposals(
     r1: list[SolverEntry],
     r3: list[SolverEntry],
     critic: Optional[CriticVerdict],
+    expected: Optional[Grid] = None,
 ) -> None:
     """
     Show R3 revised grids only — R1 grids were already shown.
-    Flags each solver as REVISED or UNCHANGED relative to R1.
+    Flags REVISED / UNCHANGED, and shows the correct output for comparison.
     """
-    from grid_tools import grids_equal
+    from grid_tools import grids_equal, cell_accuracy
 
     console.print(Rule("[bold blue]Round 3 — Revised Proposals[/bold blue]", style="blue"))
     r1_map = {e.agent: e for e in r1}
@@ -236,17 +252,26 @@ def show_r3_proposals(
         delta = "[green]REVISED[/green]" if changed else "[dim]UNCHANGED[/dim]"
         rule_text = e3.rule[:100] + ("…" if len(e3.rule) > 100 else "")
 
+        acc_str = ""
+        if expected and e3.grid:
+            acc = cell_accuracy(e3.grid, expected)
+            acc_str = f"  {acc*100:.0f}% acc"
+
         body = Text()
         body.append_text(_render_grid(e3.grid))
         body.append(f"\n{rule_text}", style="dim")
 
         panels.append(Panel(
             body,
-            title=f"{short}  [{cs}]{e3.confidence}[/{cs}]  {delta}",
+            title=f"{short}  [{cs}]{e3.confidence}[/{cs}]  {delta}{acc_str}",
             subtitle=f"R1 was [{vs}]{verdict}[/{vs}]",
             border_style="blue" if changed else "dim",
             expand=False,
         ))
+
+    if expected is not None:
+        panels.append(_grid_panel(expected, title="[green]CORRECT OUTPUT[/green]",
+                                  border="green"))
 
     console.print(Columns(panels, padding=(0, 2)))
     console.print()

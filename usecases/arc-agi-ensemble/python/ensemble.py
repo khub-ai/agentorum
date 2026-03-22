@@ -141,7 +141,7 @@ async def run_ensemble(
     # ------------------------------------------------------------------
     human_hypothesis = ""
     if human_in_loop:
-        disp.show_puzzle(task, task_id)
+        disp.show_puzzle(task, task_id, expected=expected)
         human_hypothesis = disp.human_hypothesis_checkpoint(task_id)
         if human_hypothesis:
             log(f"  Human hypothesis: {human_hypothesis[:80]}")
@@ -184,7 +184,7 @@ async def run_ensemble(
     # Checkpoint 2 — Show CRITIC results, ask for insight
     human_r3_insight = ""
     if human_in_loop:
-        disp.show_critic_results(r1_entries, critic_verdict)
+        disp.show_critic_results(r1_entries, critic_verdict, expected=expected)
         if not (all_pass and _all_converged(r1_entries)):
             human_r3_insight = disp.human_post_critic_checkpoint()
             if human_r3_insight:
@@ -215,7 +215,7 @@ async def run_ensemble(
     # Checkpoint 3 — Show R3 proposals, ask for final insight
     human_mediator_insight = ""
     if human_in_loop and r3_entries:
-        disp.show_r3_proposals(r1_entries, r3_entries, critic_verdict)
+        disp.show_r3_proposals(r1_entries, r3_entries, critic_verdict, expected=expected)
         human_mediator_insight = disp.human_pre_mediator_checkpoint()
         if human_mediator_insight:
             log(f"  Human mediator insight: {human_mediator_insight[:80]}", force=True)
