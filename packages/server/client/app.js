@@ -262,6 +262,21 @@ function formatLocalTime(timestamp, entryId) {
   return d.toLocaleString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit', second: '2-digit' });
 }
 
+function formatTimestamp(timestamp) {
+  // Show the raw timestamp in a compact form: "Mar 21, 23:32" or "11:32 PM"
+  // Parse the raw string directly (no UTC/local guessing — just show what's written)
+  const parts = timestamp.match(/(\d{4})-(\d{2})-(\d{2})\s+(\d{2}):(\d{2}):(\d{2})/);
+  if (!parts) return timestamp;
+  const [, yr, mo, dy, hh, mm] = parts;
+  const months = ['', 'Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+  const today = new Date();
+  const isToday = (parseInt(yr) === today.getFullYear() &&
+                   parseInt(mo) === (today.getMonth()+1) &&
+                   parseInt(dy) === today.getDate());
+  if (isToday) return `${hh}:${mm}`;
+  return `${months[parseInt(mo)]} ${parseInt(dy)}, ${hh}:${mm}`;
+}
+
 function timeAgo(timestamp, entryId) {
   const ms   = parseEntryTime(timestamp, entryId);
   const diff = Math.floor((Date.now() - ms) / 1000);
@@ -319,7 +334,7 @@ function makeCard(entry) {
       ${role ? `<span class="entry-role">${role}</span>` : ''}
       ${metaBadges}
       ${ratingPips}
-      <a class="entry-ts" href="#entry-${entry.id}" title="${formatLocalTime(entry.timestamp, entry.id)}" onclick="event.stopPropagation();history.replaceState(null,'','#entry-${entry.id}')">${timeAgo(entry.timestamp, entry.id)}</a>
+      <a class="entry-ts" href="#entry-${entry.id}" title="${timeAgo(entry.timestamp, entry.id)}" onclick="event.stopPropagation();history.replaceState(null,'','#entry-${entry.id}')">${formatTimestamp(entry.timestamp)}</a>
       <button class="btn-copy-entry" data-body="${entry.body.replace(/"/g,'&quot;')}" title="Copy to clipboard">📋</button>
       ${!isRatingEntry ? `<button class="btn-rate-entry" data-id="${entry.id}" title="Rate this entry">★</button>` : ''}
       <button class="btn-delete-entry" data-id="${entry.id}" title="Delete this entry">🗑</button>
@@ -408,7 +423,7 @@ function refreshAgeClasses() {
     const cls = ageClass(ts, id);
     if (cls) card.classList.add(cls);
     const tsEl = card.querySelector('.entry-ts');
-    if (tsEl) tsEl.textContent = timeAgo(ts, id);
+    if (tsEl) tsEl.title = timeAgo(ts, id);
   });
 }
 
