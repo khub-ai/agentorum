@@ -24,7 +24,10 @@
     "electron:build:linux":"electron-builder --config electron-builder.yml --linux",
 
     "arc":      "node usecases/arc-agi-ensemble/run.mjs",
-    "arc:human":"node usecases/arc-agi-ensemble/run.mjs --human --charts --charts-dir usecases/arc-agi-ensemble/charts"
+    "arc:human":"node usecases/arc-agi-ensemble/run.mjs --human --charts --charts-dir usecases/arc-agi-ensemble/charts",
+
+    "arc:py":      "bash usecases/arc-agi-ensemble/run-python.sh",
+    "arc:py:human":"bash usecases/arc-agi-ensemble/run-python.sh --human"
   },
   "devDependencies": {
     "electron":         "^33.0.0",

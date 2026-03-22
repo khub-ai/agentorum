@@ -161,7 +161,7 @@ async def run_ensemble(
         if verbose and (force or not human_in_loop):
             print(msg)
 
-    log(f"\n{'─'*50}", force=True)
+    log(f"\n{'-'*50}", force=True)
     log(f"Task: {task_id}  ({meta.train_pairs} demos, test {meta.test_shape[0]}×{meta.test_shape[1]})", force=True)
     log(f"Model: {DEFAULT_MODEL}  |  Rules: {rule_engine.stats_summary()}", force=True)
 

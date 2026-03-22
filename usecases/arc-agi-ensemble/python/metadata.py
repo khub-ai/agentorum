@@ -138,13 +138,28 @@ def extract_critic_verdicts(text: str) -> dict[str, str]:
         except Exception:
             pass
 
-    # Fallback: line scan
+    # Fallback: line scan — try full name and short name
     verdicts: dict[str, str] = {}
-    for solver in ("SOLVER-SPATIAL", "SOLVER-PROCEDURAL", "SOLVER-ANALOGICAL"):
-        pattern = re.compile(rf"{solver}[:\s]+(PASS|FAIL)", re.IGNORECASE)
-        m = pattern.search(text)
-        if m:
-            verdicts[solver] = m.group(1).upper()
+    solver_names = {
+        "SOLVER-SPATIAL": ["SOLVER-SPATIAL", "SPATIAL"],
+        "SOLVER-PROCEDURAL": ["SOLVER-PROCEDURAL", "PROCEDURAL"],
+        "SOLVER-ANALOGICAL": ["SOLVER-ANALOGICAL", "ANALOGICAL"],
+    }
+    for canonical, aliases in solver_names.items():
+        for name in aliases:
+            pattern = re.compile(rf"{name}[:\s*\-]*(PASS|FAIL)", re.IGNORECASE)
+            m = pattern.search(text)
+            if m:
+                verdicts[canonical] = m.group(1).upper()
+                break
+
+    # Last resort: look for any PASS/FAIL lines and map by order
+    if not verdicts:
+        pf_matches = re.findall(r"\b(PASS|FAIL)\b", text, re.IGNORECASE)
+        solvers = ["SOLVER-SPATIAL", "SOLVER-PROCEDURAL", "SOLVER-ANALOGICAL"]
+        for i, v in enumerate(pf_matches[:3]):
+            verdicts[solvers[i]] = v.upper()
+
     return verdicts
 
 

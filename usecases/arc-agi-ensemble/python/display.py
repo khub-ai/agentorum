@@ -195,13 +195,13 @@ def show_critic_results(entries: list[SolverEntry], critic: CriticVerdict,
 
     for e in entries:
         verdict = critic.verdicts.get(e.agent, "?")
-        vs = _VERDICT_STYLE.get(verdict, "")
-        cs = _CONF_STYLE.get(e.confidence, "")
+        vs = _VERDICT_STYLE.get(verdict, "dim")
+        cs = _CONF_STYLE.get(e.confidence, "dim")
         t.add_row(
             e.agent.replace("SOLVER-", ""),
-            f"[{vs}]{verdict}[/{vs}]",
-            f"[{cs}]{e.confidence}[/{cs}]",
-            e.rule[:100] + ("…" if len(e.rule) > 100 else ""),
+            Text(verdict, style=vs),
+            Text(e.confidence, style=cs),
+            e.rule[:100] + ("..." if len(e.rule) > 100 else ""),
         )
     console.print(t)
 
