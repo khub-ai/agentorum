@@ -41,6 +41,7 @@ function connect() {
         serverConfig   = msg.config || {};
         buildParticipantMap(serverConfig.participants || []);
         allEntries     = msg.entries;
+        resolveEntryTimes(allEntries);
         shownCount     = Math.min(20, allEntries.length);
         applyScores(msg.scores || {});
         // Restore filter state from localStorage
@@ -60,6 +61,7 @@ function connect() {
       case 'entries_added':
         msg.entries.forEach(e => {
           allEntries.push(e);
+          resolveEntryTimes(allEntries);
           newSinceLoad.add(e.id);
           // If this participant had a pending nudge, clear it — they responded
           if (nudgeMap[e.author]) {
@@ -178,42 +180,87 @@ function highlight(text, query) {
 // ---------------------------------------------------------------------------
 // Entry rendering
 // ---------------------------------------------------------------------------
-function parseEntryTime(timestamp) {
-  // Timestamps may be UTC (from server's toISOString()) or local (from interactive
-  // agents writing directly to the chatlog).  We cannot tell them apart from the
-  // string alone, so we interpret as **local time** — this is correct for interactive
-  // agents, and for server entries the error is exactly the user's UTC offset, which
-  // is far less confusing than the reverse (interpreting local times as UTC makes
-  // entries jump hours into the past/future).
-  const local = new Date(timestamp.replace(' ', 'T'));
-  if (!isNaN(local.getTime())) return local.getTime();
-  // Fallback: try with Z suffix
-  const utc = new Date(timestamp.replace(' ', 'T') + 'Z');
-  return isNaN(utc.getTime()) ? Date.now() : utc.getTime();
+// ---------------------------------------------------------------------------
+// Timestamp resolution
+//
+// The chatlog mixes UTC timestamps (server-generated via toISOString) and
+// local timestamps (written by interactive agents).  We cannot distinguish
+// them from the string alone.  Strategy:
+//
+//   1. Parse each timestamp as BOTH local and UTC.
+//   2. Discard any interpretation that lands in the future.
+//   3. Pick the interpretation closest to "now" (least stale).
+//   4. Enforce monotonicity: each entry must be >= the previous one,
+//      because chatlog append order IS chronological order.
+//
+// The result is cached in _resolvedTimes (entry.id → ms).
+// ---------------------------------------------------------------------------
+const _resolvedTimes = {};
+
+function resolveEntryTimes(entries) {
+  const now = Date.now();
+  let prevMs = 0;
+  for (const entry of entries) {
+    if (_resolvedTimes[entry.id]) {
+      prevMs = Math.max(prevMs, _resolvedTimes[entry.id]);
+      continue;
+    }
+    const iso = entry.timestamp.replace(' ', 'T');
+    const asLocal = new Date(iso).getTime();
+    const asUtc   = new Date(iso + 'Z').getTime();
+    const candidates = [];
+    if (!isNaN(asLocal) && asLocal <= now) candidates.push(asLocal);
+    if (!isNaN(asUtc)   && asUtc   <= now) candidates.push(asUtc);
+    let best;
+    if (candidates.length === 0) {
+      best = now; // both in future — use now
+    } else {
+      // Pick the one closest to now (least stale / most plausible)
+      best = candidates.reduce((a, b) => (now - a) < (now - b) ? a : b);
+    }
+    // Enforce monotonicity — entry can't be older than the one before it
+    best = Math.max(best, prevMs);
+    _resolvedTimes[entry.id] = best;
+    prevMs = best;
+  }
 }
 
-function ageClass(timestamp) {
-  const diff = Math.max(0, (Date.now() - parseEntryTime(timestamp)) / 1000);
+function parseEntryTime(timestamp, entryId) {
+  if (entryId && _resolvedTimes[entryId]) return _resolvedTimes[entryId];
+  // Fallback for calls without an entryId (e.g. agent card "last response")
+  const iso = timestamp.replace(' ', 'T');
+  const asLocal = new Date(iso).getTime();
+  const asUtc   = new Date(iso + 'Z').getTime();
+  const now = Date.now();
+  const candidates = [];
+  if (!isNaN(asLocal) && asLocal <= now) candidates.push(asLocal);
+  if (!isNaN(asUtc)   && asUtc   <= now) candidates.push(asUtc);
+  if (candidates.length === 0) return now;
+  return candidates.reduce((a, b) => (now - a) < (now - b) ? a : b);
+}
+
+function ageClass(timestamp, entryId) {
+  const diff = Math.max(0, (Date.now() - parseEntryTime(timestamp, entryId)) / 1000);
   if (diff < 45)   return 'age-fresh';
   if (diff < 300)  return 'age-new';
   if (diff < 3600) return 'age-recent';
   return '';
 }
 
-function formatLocalTime(timestamp) {
-  const ms = parseEntryTime(timestamp);
+function formatLocalTime(timestamp, entryId) {
+  const ms = parseEntryTime(timestamp, entryId);
   const d = new Date(ms);
   return d.toLocaleString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit', second: '2-digit' });
 }
 
-function timeAgo(timestamp) {
-  const diff = Math.max(0, Math.floor((Date.now() - parseEntryTime(timestamp)) / 1000));
+function timeAgo(timestamp, entryId) {
+  const diff = Math.max(0, Math.floor((Date.now() - parseEntryTime(timestamp, entryId)) / 1000));
   if (diff < 60)    return `${diff}s ago`;
   if (diff < 3600)  return `${Math.floor(diff/60)}m ago`;
   if (diff < 86400) return `${Math.floor(diff/3600)}h ago`;
   if (diff < 604800) return `${Math.floor(diff/86400)}d ago`;
   // Older than 7 days — show the date
-  const d = new Date(parseEntryTime(timestamp));
+  const d = new Date(parseEntryTime(timestamp, entryId));
   return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: d.getFullYear() !== new Date().getFullYear() ? 'numeric' : undefined });
 }
 
@@ -226,7 +273,7 @@ function makeCard(entry) {
   const color     = participantColor(entry.author);
   const name      = participantName(entry.author);
   const role      = participantRole(entry.author);
-  const age       = ageClass(entry.timestamp);
+  const age       = ageClass(entry.timestamp, entry.id);
 
   const card = document.createElement('div');
   card.className = `entry-card ${age} ${collapsed ? 'collapsed' : 'expanded'}`;
@@ -261,7 +308,7 @@ function makeCard(entry) {
       ${role ? `<span class="entry-role">${role}</span>` : ''}
       ${metaBadges}
       ${ratingPips}
-      <a class="entry-ts" href="#entry-${entry.id}" title="${formatLocalTime(entry.timestamp)}" onclick="event.stopPropagation();history.replaceState(null,'','#entry-${entry.id}')">${timeAgo(entry.timestamp)}</a>
+      <a class="entry-ts" href="#entry-${entry.id}" title="${formatLocalTime(entry.timestamp, entry.id)}" onclick="event.stopPropagation();history.replaceState(null,'','#entry-${entry.id}')">${timeAgo(entry.timestamp, entry.id)}</a>
       <button class="btn-copy-entry" data-body="${entry.body.replace(/"/g,'&quot;')}" title="Copy to clipboard">📋</button>
       ${!isRatingEntry ? `<button class="btn-rate-entry" data-id="${entry.id}" title="Rate this entry">★</button>` : ''}
       <button class="btn-delete-entry" data-id="${entry.id}" title="Delete this entry">🗑</button>
@@ -345,11 +392,12 @@ setInterval(() => refreshAgeClasses(), 20_000);
 function refreshAgeClasses() {
   document.querySelectorAll('.entry-card').forEach(card => {
     const ts = card.dataset.ts;
+    const id = card.dataset.id;
     card.classList.remove('age-fresh','age-new','age-recent');
-    const cls = ageClass(ts);
+    const cls = ageClass(ts, id);
     if (cls) card.classList.add(cls);
     const tsEl = card.querySelector('.entry-ts');
-    if (tsEl) tsEl.textContent = timeAgo(ts);
+    if (tsEl) tsEl.textContent = timeAgo(ts, id);
   });
 }
 
