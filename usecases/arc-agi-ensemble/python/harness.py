@@ -37,6 +37,8 @@ from ensemble import run_ensemble
 from knowledge import KnowledgeBase
 from metadata import TaskMetadata, compute_outcome
 from visualize import save_all_charts
+import agents
+from agents import DEFAULT_MODEL
 
 console = Console()
 
@@ -55,7 +57,8 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--offset",   type=int, default=0)
     p.add_argument("--task-id",  default="")
     p.add_argument("--output",   default=DEFAULT_OUTPUT)
-    p.add_argument("--human",    action="store_true", help="Enable human-in-the-loop on stalemate")
+    p.add_argument("--human",    action="store_true", help="Enable human-in-the-loop checkpoints")
+    p.add_argument("--prompts",  action="store_true", help="Print full prompts sent to each agent")
     p.add_argument("--charts",   action="store_true", help="Save charts per task")
     p.add_argument("--charts-dir", default="charts")
     p.add_argument("--knowledge", default="", help="Path to knowledge.json (default: auto)")
@@ -70,6 +73,7 @@ def parse_args() -> argparse.Namespace:
 async def main() -> None:
     args = parse_args()
     verbose = not args.quiet
+    agents.SHOW_PROMPTS = args.prompts
 
     # Load API key
     api_key = os.environ.get("ANTHROPIC_API_KEY")
@@ -110,10 +114,12 @@ async def main() -> None:
 
     console.print(Panel(
         f"[bold]ARC-AGI Python Ensemble[/bold]\n"
-        f"Tasks: {len(task_ids)} (offset={args.offset}, limit={args.limit})\n"
-        f"Human loop: {'on' if args.human else 'off'}  |  "
-        f"Charts: {'on' if args.charts else 'off'}\n"
-        f"KB: {kb.path}  {kb.stats()}",
+        f"Model:  [cyan]{DEFAULT_MODEL}[/cyan]\n"
+        f"Tasks:  {len(task_ids)} (offset={args.offset}, limit={args.limit})\n"
+        f"Flags:  human={'on' if args.human else 'off'}  "
+        f"prompts={'on' if args.prompts else 'off'}  "
+        f"charts={'on' if args.charts else 'off'}\n"
+        f"KB:     {kb.path}  {kb.stats()}",
         title="Harness"
     ))
 

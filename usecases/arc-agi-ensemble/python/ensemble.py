@@ -24,6 +24,7 @@ from metadata import (
 )
 from agents import (
     run_solvers_round1, run_critic, run_solvers_round3, run_mediator,
+    DEFAULT_MODEL,
 )
 from knowledge import KnowledgeBase
 import display as disp
@@ -131,7 +132,7 @@ async def run_ensemble(
 
     log(f"\n{'─'*50}")
     log(f"Task: {task_id}  ({meta.train_pairs} demos, test {meta.test_shape[0]}×{meta.test_shape[1]})")
-    log(f"Prior KB: {knowledge_base.stats()}")
+    log(f"Model: {DEFAULT_MODEL}  |  Prior KB: {knowledge_base.stats()}")
 
     # ------------------------------------------------------------------
     # Checkpoint 0 — Show puzzle, ask for human hypothesis

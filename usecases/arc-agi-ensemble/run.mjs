@@ -24,7 +24,7 @@ const args    = process.argv.slice(2);   // pass everything after 'node run.mjs'
 
 const result = spawnSync(python, [harness, ...args], {
   stdio: "inherit",
-  env: process.env,
+  env: { ...process.env, PYTHONUTF8: "1", PYTHONIOENCODING: "utf-8" },
 });
 
 process.exit(result.status ?? 1);

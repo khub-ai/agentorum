@@ -55,19 +55,42 @@ _VERDICT_BORDER = {"PASS": "green", "FAIL": "red"}
 # ---------------------------------------------------------------------------
 
 def _render_grid(grid: Optional[Grid]) -> Text:
-    """Render an ARC grid as a Rich Text with colored 2-space blocks."""
+    """
+    Render an ARC grid as a Rich Text with colored 2-space blocks,
+    surrounded by a Unicode bounding box.
+
+      ┌──────────┐
+      │  ██  ██  │
+      │  ██  ██  │
+      └──────────┘
+    """
     t = Text()
     if not grid:
         t.append("(none)", style="dim italic")
         return t
+
+    cols = len(grid[0]) if grid[0] else 0
+    # Each cell = 2 chars, borders add 1 each side → total inner width = cols*2
+    inner_w = cols * 2
+    box_style = "dim"
+
+    # Top border  (ASCII for Windows cp1252 compatibility)
+    t.append("+" + "-" * inner_w + "+\n", style=box_style)
+
     for i, row in enumerate(grid):
-        if i > 0:
-            t.append("\n")
+        t.append("|", style=box_style)
         for val in row:
             idx = val if 0 <= val <= 9 else 0
             bg = _BG[idx]
             fg = "white" if idx in _DARK_BG else "black"
             t.append("  ", style=f"{fg} on {bg}")
+        t.append("|", style=box_style)
+        if i < len(grid) - 1:
+            t.append("\n")
+
+    # Bottom border
+    t.append("\n+" + "-" * inner_w + "+", style=box_style)
+
     return t
 
 

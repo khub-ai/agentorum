@@ -98,6 +98,10 @@ def format_debate_for_prompt(debate: list[dict]) -> str:
 DEFAULT_MODEL = "claude-sonnet-4-20250514"
 DEFAULT_MAX_TOKENS = 4096
 
+# Set to True by harness/ensemble to print prompts before each call
+SHOW_PROMPTS: bool = False
+
+
 async def call_agent(
     agent_id: str,
     user_message: str,
@@ -109,6 +113,10 @@ async def call_agent(
     Returns (response_text, duration_ms).
     """
     system_prompt = load_prompt(agent_id)
+
+    if SHOW_PROMPTS:
+        _print_prompt(agent_id, system_prompt, user_message, model)
+
     client = get_client()
     t0 = time.time()
     response = await client.messages.create(
@@ -120,6 +128,31 @@ async def call_agent(
     duration_ms = int((time.time() - t0) * 1000)
     text = response.content[0].text if response.content else ""
     return text, duration_ms
+
+
+def _print_prompt(agent_id: str, system: str, user: str, model: str) -> None:
+    """Print agent prompt to terminal (used when SHOW_PROMPTS is True)."""
+    try:
+        from rich.console import Console
+        from rich.panel import Panel
+        from rich.text import Text
+        c = Console()
+        sys_preview = system[:600] + ("…" if len(system) > 600 else "")
+        usr_preview = user[:1200] + ("…" if len(user) > 1200 else "")
+        c.print(Panel(
+            Text(sys_preview, style="dim"),
+            title=f"[bold magenta]{agent_id} — system prompt[/bold magenta]  [dim]{model}[/dim]",
+            border_style="magenta",
+        ))
+        c.print(Panel(
+            Text(usr_preview),
+            title=f"[bold magenta]{agent_id} — user message[/bold magenta]",
+            border_style="magenta",
+        ))
+    except ImportError:
+        print(f"\n=== {agent_id} ({model}) ===")
+        print(f"SYSTEM: {system[:400]}")
+        print(f"USER:   {user[:800]}")
 
 
 # ---------------------------------------------------------------------------
