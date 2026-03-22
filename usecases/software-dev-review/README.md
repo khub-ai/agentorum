@@ -122,9 +122,27 @@ Agentorum creates the project and session and drops you into the session view. A
 node packages/server/server.mjs --bundle usecases/software-dev-review/software-dev-review.bundle.json --open
 ```
 
-### 3. Start the agents
+### 3. Initialize the agents
 
-In the right panel, click **Start** on the **CLAUDE-DEV** and **CODEX-DEV** cards. Each card will show "watching" — the agents are now running and will respond when you post.
+Both agents are configured as **interactive** — they run in your own terminal sessions (Claude Code and OpenAI Codex), not as server-managed subprocesses.
+
+**Option A: Interactive mode (default)**
+
+Open two separate terminal windows. In each, paste the initialization command shown on the agent's card in the right panel:
+
+```
+# Terminal 1 — Claude Code
+Read this file and confirm your role: C:\Users\<you>\.agentorum\projects\...\rules-CLAUDE-DEV.txt
+
+# Terminal 2 — OpenAI Codex
+Read this file and confirm your role: C:\Users\<you>\.agentorum\projects\...\rules-CODEX-DEV.txt
+```
+
+Each agent will read their rules file, confirm their role, and begin watching the chatlog. When the UI shows an ⚡ badge on an agent's card, prompt that agent in its terminal to check the chatlog and respond.
+
+**Option B: Fully automated (API mode)**
+
+If you have API keys set (`ANTHROPIC_API_KEY`, `OPENAI_API_KEY`), you can switch both agents to `mode: "api"` in the session config. The server will call the LLM APIs directly — no terminal sessions needed. The automation rules ("CODEX-DEV posts → trigger CLAUDE-DEV" and vice versa) will fire automatically, creating a hands-free back-and-forth review.
 
 ### 4. Post your code
 
@@ -132,7 +150,7 @@ At the bottom of the session view, select **HUMAN** as your author. Paste the co
 
 > "Please review this for security vulnerabilities and edge cases in the input validation logic."
 
-Press **Post** (or Ctrl+Enter). Both agents will respond within seconds.
+Press **Post** (or Ctrl+Enter). In interactive mode, check each agent's terminal and prompt them to respond. In API mode, both agents will respond automatically within seconds.
 
 ---
 

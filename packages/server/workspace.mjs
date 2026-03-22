@@ -832,23 +832,26 @@ export class WorkspaceManager {
       if (!chatlogPath || !existsSync(chatlogPath)) continue;
       try {
         const raw = await fs.readFile(chatlogPath, 'utf8');
-        // Simple line-by-line scan of the NDJSON chatlog
-        for (const line of raw.split('\n')) {
-          if (!line.trim()) continue;
-          try {
-            const entry = JSON.parse(line);
-            if ((entry.body || '').toLowerCase().includes(q) ||
-                (entry.author || '').toLowerCase().includes(q)) {
-              results.push({
-                sessionId:   sid,
-                sessionName,
-                entryId:     entry.id,
-                author:      entry.author,
-                timestamp:   entry.timestamp,
-                snippet:     entry.body.slice(0, 200)
-              });
-            }
-          } catch { /* malformed line */ }
+        // Parse the Markdown chatlog by splitting on ### TIMESTAMP - AUTHOR headers
+        const entryPattern = /^### (\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}) - (.+)$/;
+        const blocks = raw.split(/(?=^### \d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2} - )/m);
+        for (const block of blocks) {
+          const firstLine = block.split('\n')[0];
+          const match = firstLine.match(entryPattern);
+          if (!match) continue;
+          const [, timestamp, author] = match;
+          const body = block.slice(firstLine.length).trim();
+          const entryId = `${timestamp}-${author}`.replace(/[^a-zA-Z0-9-]/g, '-');
+          if (body.toLowerCase().includes(q) || author.toLowerCase().includes(q)) {
+            results.push({
+              sessionId:   sid,
+              sessionName,
+              entryId,
+              author,
+              timestamp,
+              snippet:     body.replace(/\n/g, ' ').slice(0, 200)
+            });
+          }
         }
       } catch { /* can't read chatlog */ }
     }
