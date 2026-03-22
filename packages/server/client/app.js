@@ -208,15 +208,22 @@ function resolveEntryTimes(entries) {
     const iso = entry.timestamp.replace(' ', 'T');
     const asLocal = new Date(iso).getTime();
     const asUtc   = new Date(iso + 'Z').getTime();
-    const candidates = [];
-    if (!isNaN(asLocal) && asLocal <= now) candidates.push(asLocal);
-    if (!isNaN(asUtc)   && asUtc   <= now) candidates.push(asUtc);
+
+    // Collect valid (non-NaN) interpretations — include future ones too
+    const all = [];
+    if (!isNaN(asLocal)) all.push(asLocal);
+    if (!isNaN(asUtc))   all.push(asUtc);
+    if (all.length === 0) { _resolvedTimes[entry.id] = now; prevMs = now; continue; }
+
+    // Prefer past interpretations; if none, use the closest future one
+    const past = all.filter(t => t <= now);
     let best;
-    if (candidates.length === 0) {
-      best = now; // both in future — use now
+    if (past.length > 0) {
+      // Pick the one closest to now (most plausible)
+      best = past.reduce((a, b) => (now - a) < (now - b) ? a : b);
     } else {
-      // Pick the one closest to now (least stale / most plausible)
-      best = candidates.reduce((a, b) => (now - a) < (now - b) ? a : b);
+      // All in future — pick closest to now (least far ahead)
+      best = all.reduce((a, b) => (a - now) < (b - now) ? a : b);
     }
     // Enforce monotonicity — entry can't be older than the one before it
     best = Math.max(best, prevMs);
@@ -232,11 +239,13 @@ function parseEntryTime(timestamp, entryId) {
   const asLocal = new Date(iso).getTime();
   const asUtc   = new Date(iso + 'Z').getTime();
   const now = Date.now();
-  const candidates = [];
-  if (!isNaN(asLocal) && asLocal <= now) candidates.push(asLocal);
-  if (!isNaN(asUtc)   && asUtc   <= now) candidates.push(asUtc);
-  if (candidates.length === 0) return now;
-  return candidates.reduce((a, b) => (now - a) < (now - b) ? a : b);
+  const all = [];
+  if (!isNaN(asLocal)) all.push(asLocal);
+  if (!isNaN(asUtc))   all.push(asUtc);
+  if (all.length === 0) return now;
+  const past = all.filter(t => t <= now);
+  if (past.length > 0) return past.reduce((a, b) => (now - a) < (now - b) ? a : b);
+  return all.reduce((a, b) => (a - now) < (b - now) ? a : b);
 }
 
 function ageClass(timestamp, entryId) {
@@ -254,13 +263,15 @@ function formatLocalTime(timestamp, entryId) {
 }
 
 function timeAgo(timestamp, entryId) {
-  const diff = Math.max(0, Math.floor((Date.now() - parseEntryTime(timestamp, entryId)) / 1000));
+  const ms   = parseEntryTime(timestamp, entryId);
+  const diff = Math.floor((Date.now() - ms) / 1000);
+  if (diff < 0)     return 'just now';   // future timestamp — display gracefully
   if (diff < 60)    return `${diff}s ago`;
   if (diff < 3600)  return `${Math.floor(diff/60)}m ago`;
   if (diff < 86400) return `${Math.floor(diff/3600)}h ago`;
   if (diff < 604800) return `${Math.floor(diff/86400)}d ago`;
   // Older than 7 days — show the date
-  const d = new Date(parseEntryTime(timestamp, entryId));
+  const d = new Date(ms);
   return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: d.getFullYear() !== new Date().getFullYear() ? 'numeric' : undefined });
 }
 
