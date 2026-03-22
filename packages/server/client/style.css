@@ -80,6 +80,27 @@ html[data-theme="light"] {
 }
 #btn-theme:hover { background: var(--bg-sidebar); }
 
+#btn-help {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  border: 1.5px solid var(--text-muted);
+  color: var(--text-muted);
+  font-size: 13px;
+  font-weight: 700;
+  text-decoration: none;
+  line-height: 1;
+  transition: background 0.15s, color 0.15s, border-color 0.15s;
+}
+#btn-help:hover {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+}
+
 /* ---------------------------------------------------------------------------
    Reset & base
    ------------------------------------------------------------------------- */
