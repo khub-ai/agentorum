@@ -1795,3 +1795,127 @@ The chatlog parser (`parseEntries()`) is tolerant of minor whitespace variations
 ### 28.4 Fallback
 
 The HTTP API remains available to interactive agents as a fallback. The rules file includes the curl command for agents that prefer or need it (e.g., when the agent cannot write to the file system). The token-error fallback ("if the server responds with invalid_token, re-read this file") applies only to the API method.
+
+---
+
+## 29. Production Rule System for Agent Ensembles
+
+### 29.1 Purpose
+
+When agent ensembles solve tasks repeatedly (e.g., ARC-AGI puzzles), they accumulate knowledge that should transfer to future tasks. Rather than storing free-form text patterns, Agentorum uses a **production rule system** where each rule is a condition-action pair expressed in natural language. This provides a structured, auditable, evolvable knowledge base with built-in performance tracking.
+
+### 29.2 Rule Structure
+
+```json
+{
+  "id": "r_001",
+  "condition": "Grid contains isolated colored cells above empty space with a solid base row",
+  "action": "Apply column-wise gravity: each non-background cell falls to the lowest empty cell in its column. Process columns independently.",
+  "stats": { "fired": 5, "succeeded": 4, "failed": 1 },
+  "source": "mediator",
+  "source_task": "1e0a9b12",
+  "tags": ["gravity", "column", "spatial"],
+  "lineage": {
+    "type": "new",
+    "parent_ids": [],
+    "reason": ""
+  },
+  "status": "active",
+  "created": "2026-03-22T10:00:00",
+  "last_fired": "2026-03-22T12:30:00"
+}
+```
+
+- **Condition**: natural language description of puzzle type / structural properties. Evaluated by an LLM against the demo pairs (fuzzy matching, not boolean).
+- **Action**: natural language guidance for solving. Injected into solver and MEDIATOR prompts when the rule fires.
+- **Stats**: track firing outcomes. Success rate influences ranking.
+- **Lineage**: tracks how the rule was created — `new`, `generalized`, `specialized`, or `merged` from parent rule(s). Forms a derivation tree for auditability.
+- **Status**: `active` or `deprecated`. Deprecated rules are kept for history but excluded from matching.
+
+### 29.3 Rule Lifecycle
+
+```
+New puzzle arrives
+    |
+    v
+RULE MATCHING (one LLM call)
+  Evaluate all active rules' conditions against demo pairs
+  Return: matched rules ranked by (match confidence x success rate)
+    |
+    v
+INJECTION
+  Top-N matched rules' actions injected into solver + MEDIATOR prompts
+    |
+    v
+SOLVE (R1 -> R2 -> R3 -> R4)
+    |
+    v
+STATS UPDATE
+  Success? -> fired rules: stats.succeeded++
+  Failure? -> fired rules: stats.failed++
+    |
+    v
+RULE EVOLUTION (MEDIATOR)
+  Success, no rules matched -> create NEW rule from solution
+  Success, rules matched    -> optionally GENERALIZE to cover more cases
+  Failure, rules matched    -> SPECIALIZE (condition too broad) or NEW (wrong action)
+  Failure, no rules matched -> create speculative NEW rule for puzzle type
+```
+
+### 29.4 Rule Evolution
+
+The MEDIATOR can evolve existing rules through three operations, each tracked via lineage:
+
+**Generalization** — when a rule's condition is too narrow:
+- Example: "cells fall downward due to gravity" → "cells are pulled in a direction (up/down/left/right) determined by the demo pair orientation"
+- Creates a new rule with `lineage.type = "generalized"` and `lineage.parent_ids = ["r_001"]`
+- The parent rule is NOT deprecated — both coexist, and the more specific one may fire with higher confidence when its exact condition matches
+
+**Specialization** — when a rule's condition is too broad and caused a failure:
+- Example: "gravity puzzle" → "gravity puzzle where obstacle cells (non-zero, non-background) block movement and remain fixed"
+- Creates a new rule with `lineage.type = "specialized"` and `lineage.parent_ids = ["r_001"]`
+- Includes `lineage.reason` explaining what caused the failure
+
+**Merging** — when multiple rules partially overlap:
+- Creates a new rule with `lineage.type = "merged"` and `lineage.parent_ids = ["r_001", "r_003"]`
+
+### 29.5 Rule Matching Heuristics
+
+When multiple rules match, selection uses:
+
+1. **Match confidence** — LLM rates how well the condition fits (high/medium/low → 0.9/0.6/0.3)
+2. **Success rate** — `succeeded / fired` (untested rules get a neutral 0.5 prior)
+3. **Combined score** — `match_confidence × success_rate`
+4. **Top-N injection** — only the highest-scoring rules (default: 5) are injected into prompts to avoid context dilution
+
+### 29.6 Rule Quality Guidelines
+
+Rules are most effective when:
+- **Conditions** describe structural properties visible in demo pairs: spatial arrangement, color distribution, size relationships, symmetry type, object count
+- **Actions** describe transformation procedures, not specific solutions: "apply gravity", "flood-fill from seed cells", not "the output is [[1,0]]"
+- Conditions are neither too specific (mentioning exact grid sizes or cell counts) nor too vague (just "grid has colors")
+- Each rule is independently useful — a solver reading just the action should gain a meaningful advantage
+
+### 29.7 Human Participation in Rule Management
+
+Humans can:
+- Add rules manually (with `source: "human"`)
+- Edit existing rule conditions or actions
+- Deprecate rules that are consistently misleading
+- Reactivate previously deprecated rules
+- Provide condition templates to guide MEDIATOR rule creation (e.g., "look for symmetry patterns")
+
+In the human-in-the-loop UI, all rule state changes are displayed after each task:
+- Which rules fired (and their updated stats)
+- Which rules were created/generalized/specialized (with lineage and reasoning)
+- Visual indicators: `[+]` new, `[^]` generalized, `[v]` specialized, `[<>]` merged
+
+### 29.8 Storage
+
+Rules are stored in `rules.json` alongside the ensemble code. The file is excluded from git (via `.gitignore`) since it represents accumulated runtime state. For sharing or reproducing results, the rules file can be versioned manually or backed up alongside result files.
+
+### 29.9 Relationship to Other Systems
+
+This rule system replaces the earlier `knowledge.json` concept (patterns, failure_modes, human_insights). The rule system is strictly better: condition-action pairs are actionable, stats-driven selection avoids noise, and lineage tracking makes the knowledge base auditable and evolvable.
+
+The rule system is currently implemented for the ARC-AGI ensemble use case but is designed to be generalizable to other Agentorum use cases where agent ensembles accumulate domain knowledge over time.

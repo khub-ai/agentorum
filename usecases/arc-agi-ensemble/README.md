@@ -21,16 +21,18 @@ ARC-AGI puzzles require discovering a transformation rule from a few input→out
 | **CRITIC** | Verification — tests each rule against every demo pair | Reports PASS/FAIL per solver, identifies specific failing cells |
 | **MEDIATOR** | Final decision + knowledge generalization | Picks the best-supported answer, extracts lessons for future tasks, can inject human insights into the debate |
 
-The MEDIATOR was originally named "JUDGE" but was renamed to reflect its broader mandate: it does not just decide — it also **generalizes patterns into a growing knowledge base**, applies knowledge from prior tasks, guides debate direction, and can escalate to a human when the ensemble is stuck.
+The MEDIATOR was originally named "JUDGE" but was renamed to reflect its broader mandate: it does not just decide — it also **manages a production rule system** that accumulates puzzle-solving knowledge, applies that knowledge to future tasks, guides debate direction, and can escalate to a human when the ensemble is stuck.
 
 ## Debate protocol
 
 ```
+Round 0:  Rule matching — evaluate active rules against puzzle         (one LLM call)
+          → Matched rules' actions injected into solver prompts
 Round 1:  Three solvers independently propose a rule + output grid     (parallel)
           → Convergence check: if all three agree, CRITIC confirms
 Round 2:  CRITIC evaluates each proposal against all demo pairs
 Round 3:  Solvers revise based on CRITIC feedback + each other's work  (parallel)
-Round 4:  MEDIATOR reads full debate, produces final answer + updates KB
+Round 4:  MEDIATOR reads full debate, produces final answer + updates rules
 ```
 
 If all solvers converge in Round 1 and CRITIC confirms, the debate short-circuits to save cost.
@@ -48,29 +50,36 @@ Python code execution for solvers can be added in a later phase once the pure-re
 
 ### Human is part of the ensemble
 
-For research and evaluation runs, a human operator may inject insights into the debate at any point. Two mechanisms:
-1. **Stalemate detection** — if the ensemble fails to converge after Round 3, the Python harness can pause and prompt the operator for a hint before the MEDIATOR makes its final call
-2. **Knowledge base seeding** — human insights can be added to `knowledge.json` directly and will be read by all agents at the start of the next task
+For research and evaluation runs, a human operator may inject insights into the debate at any point. Three mechanisms:
+1. **Debate checkpoints** — before R1 (hypothesis), after CRITIC (insight), before MEDIATOR (final guidance)
+2. **Stalemate detection** — if the ensemble fails to converge after Round 3, the harness can pause and prompt the operator for a hint
+3. **Rule management** — humans can add, edit, deprecate, or reactivate rules directly in `rules.json`; these are picked up at the next puzzle
 
-This mirrors how expert human judgment is still invaluable even when the AI ensemble is capable.
+The UI shows all rule state changes after each task: which rules fired (with updated stats), which were created/generalized/specialized (with lineage and reasoning).
 
-### Knowledge Fabric
+### Production Rule System
 
-The MEDIATOR writes generalizable lessons to a persistent `knowledge.json` after each solved puzzle. Future tasks start with this context, so the ensemble accumulates transferable knowledge across runs:
+Instead of free-form knowledge entries, the ensemble maintains a **rule base** of condition-action pairs (`rules.json`). Each rule's condition identifies a puzzle type; its action provides solving guidance. Rules are matched against each new puzzle (Round 0), and their actions are injected into solver and MEDIATOR prompts.
 
 ```json
 {
-  "patterns": [
-    { "name": "column-gravity", "description": "Non-background cells fall to the bottom of their column.",
-      "trigger_cues": ["floating cells", "consistent downward shift"], "confirmed_tasks": ["1e0a9b12"] }
-  ],
-  "failure_modes": [
-    { "description": "Mistook row-gravity for column-gravity on symmetric input.",
-      "lesson": "Always check BOTH axes in the demo pairs." }
-  ],
-  "human_insights": []
+  "id": "r_001",
+  "condition": "Grid contains isolated colored cells above empty space with a solid base row",
+  "action": "Apply column-wise gravity: each non-background cell falls to the lowest empty cell in its column.",
+  "stats": { "fired": 5, "succeeded": 4, "failed": 1 },
+  "source": "mediator",
+  "source_task": "1e0a9b12",
+  "tags": ["gravity", "column", "spatial"],
+  "lineage": { "type": "new", "parent_ids": [], "reason": "" },
+  "status": "active"
 }
 ```
+
+**Rule evolution**: When rules fail, the MEDIATOR can **generalize** (condition too narrow), **specialize** (condition too broad), or **merge** rules. Each derivation is tracked via `lineage`, forming an auditable knowledge tree. Stats (fired/succeeded/failed) drive ranking so well-tested rules surface first.
+
+**Rule matching**: One cheap LLM call per puzzle evaluates all active conditions. Matches are ranked by `match_confidence × success_rate`. Top-N rules (default 5) are injected into agent prompts.
+
+See `specs/design-spec.md` Section 29 for the full specification.
 
 ### Python for research tooling, Node.js for the API server
 
@@ -164,8 +173,11 @@ python harness.py --task-id 1e0a9b12
 # Run 10 tasks with charts saved per task
 python harness.py --limit 10 --charts --charts-dir charts/
 
-# Enable human-in-the-loop on stalemates
+# Enable human-in-the-loop
 python harness.py --limit 20 --human --output results.json
+
+# Use a specific rules file
+python harness.py --limit 10 --rules my-rules.json
 ```
 
 ### Visualizations
@@ -219,7 +231,8 @@ usecases/arc-agi-ensemble/
     ├── ensemble.py                    ← debate orchestrator
     ├── agents.py                      ← async Anthropic API calls per agent
     ├── grid_tools.py                  ← numpy grid operations
-    ├── knowledge.py                   ← persistent knowledge base
+    ├── rules.py                       ← production rule system (condition-action pairs)
     ├── metadata.py                    ← structured per-round metadata capture
+    ├── display.py                     ← rich terminal display for human participation
     └── visualize.py                   ← matplotlib/plotly charts
 ```

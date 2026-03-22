@@ -22,6 +22,7 @@ from rich import box
 
 from grid_tools import Grid, cell_accuracy
 from metadata import SolverEntry, CriticVerdict, MediatorDecision, TaskMetadata
+from rules import RuleMatch, RuleEngine
 
 console = Console()
 
@@ -362,3 +363,148 @@ def human_pre_mediator_checkpoint() -> str:
             "  Your input will be included in the MEDIATOR's context."
         ),
     )
+
+
+# ---------------------------------------------------------------------------
+# Rule state visualization
+# ---------------------------------------------------------------------------
+
+_LINEAGE_STYLE = {
+    "new": "bold cyan",
+    "generalized": "bold yellow",
+    "specialized": "bold magenta",
+    "merged": "bold blue",
+}
+
+_LINEAGE_ICON = {
+    "new": "+",
+    "generalized": "^",     # broader
+    "specialized": "v",     # narrower
+    "merged": "<>",          # combined
+}
+
+
+def show_rule_matches(matches: list[RuleMatch],
+                      engine: RuleEngine) -> None:
+    """Display which rules matched the current puzzle (Round 0)."""
+    if not matches:
+        console.print(Panel(
+            "[dim]No rules matched this puzzle — the ensemble starts from scratch.[/dim]",
+            title="[cyan]Round 0 — Rule Matching[/cyan]",
+            border_style="dim",
+        ))
+        return
+
+    console.print(Rule("[bold cyan]Round 0 — Rule Matching[/bold cyan]", style="cyan"))
+
+    t = Table(show_header=True, box=box.SIMPLE, header_style="bold cyan")
+    t.add_column("ID", style="bold")
+    t.add_column("Confidence", justify="center")
+    t.add_column("Success Rate", justify="center")
+    t.add_column("Fired", justify="center", style="dim")
+    t.add_column("Condition", no_wrap=False, max_width=50)
+    t.add_column("Action", no_wrap=False, max_width=50, style="dim")
+
+    for m in matches:
+        stats = m.rule["stats"]
+        fired = stats["fired"]
+        sr = stats["succeeded"] / fired if fired > 0 else 0.5
+        sr_style = "green" if sr >= 0.7 else ("yellow" if sr >= 0.4 else "red")
+        cs = _CONF_STYLE.get(m.confidence, "")
+        t.add_row(
+            m.rule_id,
+            f"[{cs}]{m.confidence}[/{cs}]",
+            f"[{sr_style}]{sr:.0%}[/{sr_style}]",
+            str(fired),
+            m.rule["condition"][:80],
+            m.rule["action"][:80],
+        )
+
+    console.print(t)
+    console.print(
+        f"  [dim]{len(matches)} rule(s) will be injected into solver prompts[/dim]\n"
+    )
+
+
+def show_rule_updates(
+    fired: list[RuleMatch],
+    created: list[dict],
+    success: bool,
+    engine: RuleEngine,
+) -> None:
+    """
+    Show all rule state changes after a task completes.
+    Covers: stats updates on fired rules, and newly created/evolved rules.
+    """
+    color = "green" if success else "red"
+    outcome = "SUCCESS" if success else "FAILURE"
+    console.print(Rule(
+        f"[bold {color}]Rule Updates — {outcome}[/bold {color}]",
+        style=color,
+    ))
+
+    # --- Fired rules: stats update ---
+    if fired:
+        t = Table(show_header=True, box=box.SIMPLE, header_style="bold")
+        t.add_column("ID", style="bold")
+        t.add_column("Condition", no_wrap=False, max_width=50)
+        t.add_column("Fired", justify="center")
+        t.add_column("Succeeded", justify="center", style="green")
+        t.add_column("Failed", justify="center", style="red")
+        t.add_column("Success Rate", justify="center")
+        t.add_column("Update", justify="center")
+
+        for m in fired:
+            # Re-read from engine to get updated stats
+            r = engine.get(m.rule_id) or m.rule
+            stats = r["stats"]
+            sr = stats["succeeded"] / stats["fired"] if stats["fired"] > 0 else 0
+            sr_style = "green" if sr >= 0.7 else ("yellow" if sr >= 0.4 else "red")
+            delta = f"[{color}]+1 {'succeeded' if success else 'failed'}[/{color}]"
+            t.add_row(
+                m.rule_id,
+                r["condition"][:60],
+                str(stats["fired"]),
+                str(stats["succeeded"]),
+                str(stats["failed"]),
+                f"[{sr_style}]{sr:.0%}[/{sr_style}]",
+                delta,
+            )
+        console.print(t)
+
+    # --- Newly created/evolved rules ---
+    if created:
+        console.print()
+        console.print(f"  [bold]New rules created by MEDIATOR:[/bold]")
+        for r in created:
+            lineage = r.get("lineage", {})
+            ltype = lineage.get("type", "new")
+            icon = _LINEAGE_ICON.get(ltype, "?")
+            lstyle = _LINEAGE_STYLE.get(ltype, "")
+            parent_ids = lineage.get("parent_ids", [])
+            reason = lineage.get("reason", "")
+
+            header = f"[{lstyle}][{icon}] {r['id']} ({ltype})[/{lstyle}]"
+            if parent_ids:
+                header += f"  [dim]from {', '.join(parent_ids)}[/dim]"
+
+            body = Text()
+            body.append("CONDITION: ", style="bold")
+            body.append(r["condition"] + "\n")
+            body.append("ACTION: ", style="bold")
+            body.append(r["action"])
+            if reason:
+                body.append(f"\nREASON: ", style="bold yellow")
+                body.append(reason, style="yellow")
+
+            console.print(Panel(
+                body,
+                title=header,
+                border_style=lstyle.replace("bold ", "") if lstyle else "dim",
+                expand=False,
+            ))
+
+    if not fired and not created:
+        console.print("  [dim]No rule changes for this task.[/dim]")
+
+    console.print()

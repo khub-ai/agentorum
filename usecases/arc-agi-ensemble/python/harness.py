@@ -34,7 +34,7 @@ _HERE = Path(__file__).parent
 sys.path.insert(0, str(_HERE))
 
 from ensemble import run_ensemble
-from knowledge import KnowledgeBase
+from rules import RuleEngine
 from metadata import TaskMetadata, compute_outcome
 from visualize import save_all_charts
 import agents
@@ -61,7 +61,7 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--prompts",  action="store_true", help="Print full prompts sent to each agent")
     p.add_argument("--charts",   action="store_true", help="Save charts per task")
     p.add_argument("--charts-dir", default="charts")
-    p.add_argument("--knowledge", default="", help="Path to knowledge.json (default: auto)")
+    p.add_argument("--rules",    default="", help="Path to rules.json (default: auto)")
     p.add_argument("--quiet",    action="store_true", help="Minimal output")
     return p.parse_args()
 
@@ -78,7 +78,6 @@ async def main() -> None:
     # Load API key
     api_key = os.environ.get("ANTHROPIC_API_KEY")
     if not api_key:
-        # Try loading from common location
         key_file = Path("P:/_access/Security/api_keys.env")
         if key_file.exists():
             for line in key_file.read_text().splitlines():
@@ -108,9 +107,9 @@ async def main() -> None:
         all_ids = list(challenges.keys())
         task_ids = all_ids[args.offset : args.offset + args.limit]
 
-    # Knowledge base
-    kb_path = args.knowledge or None
-    kb = KnowledgeBase(kb_path)
+    # Rule engine
+    rules_path = args.rules or None
+    rules = RuleEngine(rules_path)
 
     console.print(Panel(
         f"[bold]ARC-AGI Python Ensemble[/bold]\n"
@@ -119,7 +118,7 @@ async def main() -> None:
         f"Flags:  human={'on' if args.human else 'off'}  "
         f"prompts={'on' if args.prompts else 'off'}  "
         f"charts={'on' if args.charts else 'off'}\n"
-        f"KB:     {kb.path}  {kb.stats()}",
+        f"Rules:  {rules.path}  {rules.stats_summary()}",
         title="Harness"
     ))
 
@@ -141,7 +140,7 @@ async def main() -> None:
             task=task,
             task_id=task_id,
             expected=expected,
-            knowledge_base=kb,
+            rule_engine=rules,
             human_in_loop=args.human,
             verbose=verbose,
         )
@@ -156,7 +155,6 @@ async def main() -> None:
             "converged": meta.mediator.converged if meta.mediator else False,
             "rounds": meta.rounds_completed,
             "duration_ms": meta.total_duration_ms,
-            "kb_updates": meta.mediator.kb_updates if meta.mediator else {},
         }
         all_results.append(row)
 
@@ -179,7 +177,8 @@ async def main() -> None:
     table.add_row("Correct", f"{correct_count}/{total}  ({accuracy*100:.1f}%)")
     table.add_row("Avg duration", f"{avg_ms/1000:.1f}s")
     table.add_row("Convergence rate", f"{conv_rate*100:.1f}%")
-    table.add_row("KB patterns", str(kb.stats()["patterns"]))
+    table.add_row("Rules (active)", str(rules.stats_summary()["active"]))
+    table.add_row("Rules (total)", str(rules.stats_summary()["total"]))
     console.print(table)
 
     # Save results
@@ -190,7 +189,7 @@ async def main() -> None:
             "accuracy": accuracy,
             "avg_ms": avg_ms,
             "conv_rate": conv_rate,
-            "kb": kb.stats(),
+            "rules": rules.stats_summary(),
         },
         "tasks": all_results,
     }

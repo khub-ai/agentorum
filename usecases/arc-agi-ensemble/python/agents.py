@@ -313,8 +313,9 @@ async def run_mediator(
     prior_knowledge: str = "",
     converged_early: bool = False,
     human_insight: str = "",
+    rule_section: str = "",
 ) -> MediatorDecision:
-    """Ask MEDIATOR to pick the best answer and extract knowledge."""
+    """Ask MEDIATOR to pick the best answer, extract knowledge, and update rules."""
     task_text = format_task_for_prompt(task)
 
     def fmt_entries(entries: list[SolverEntry], label: str) -> str:
@@ -327,7 +328,7 @@ async def run_mediator(
         return "\n".join(parts)
 
     knowledge_section = (
-        f"\n## Prior Knowledge\n{prior_knowledge}\n" if prior_knowledge.strip() else ""
+        f"\n## Applicable Rules\n{prior_knowledge}\n" if prior_knowledge.strip() else ""
     )
     human_section = (
         f"\n## Human Insight\n{human_insight}\n" if human_insight.strip() else ""
@@ -337,6 +338,7 @@ async def run_mediator(
         "Round 3 was skipped.\n"
         if converged_early else ""
     )
+    rule_mgmt_section = f"\n{rule_section}\n" if rule_section.strip() else ""
 
     user_msg = (
         f"{knowledge_section}{human_section}"
@@ -346,6 +348,7 @@ async def run_mediator(
         f"## CRITIC verdict (Round 2)\n{critic_verdict.raw_response[:1500]}\n\n"
         + (f"{fmt_entries(r3_entries, 'Round 3 revised proposals')}\n\n" if r3_entries else "")
         + "Please produce the final answer and extract knowledge for future tasks."
+        + rule_mgmt_section
     )
 
     text, ms = await call_agent("MEDIATOR", user_msg)
