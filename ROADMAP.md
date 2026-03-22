@@ -46,6 +46,8 @@ The foundation is working. You can download Agentorum today and use it.
 
 These are actively being worked on or are the immediate next items on the list.
 
+- **ARC-AGI Ensemble use case** — a 5-agent synchronous debate ensemble that solves [ARC-AGI-2](https://arcprize.org/) abstract reasoning puzzles. Three specialized solvers propose hypotheses independently, a CRITIC verifies each against all demo pairs, and a MEDIATOR makes the final decision while accumulating generalizable knowledge across tasks. A REST endpoint (`POST /api/ensemble`) is already working; a Python research harness (evaluation, visualization, knowledge base, human-in-the-loop) is in progress.
+
 - **Electron desktop app** — a proper installable desktop application for Windows, Mac, and Linux, with a native menu and no terminal required
 
 ---
