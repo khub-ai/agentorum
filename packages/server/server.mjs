@@ -584,30 +584,37 @@ function broadcastAgentStatus(id) {
 // ---------------------------------------------------------------------------
 
 function extractJsonGrid(text) {
-  // Try fenced code block first
-  const fenced = text.match(/```(?:json)?\s*\n?([\s\S]*?)```/);
-  const jsonStr = fenced ? fenced[1].trim() : text;
-
-  // Try to parse as a complete JSON object with a "grid" field
-  try {
-    const obj = JSON.parse(jsonStr);
-    if (obj.grid && Array.isArray(obj.grid)) return obj;
-  } catch {}
-
-  // Try to find a JSON object anywhere in the text
-  const objMatch = text.match(/\{[\s\S]*?"grid"\s*:\s*\[[\s\S]*?\]\s*\}/);
-  if (objMatch) {
+  // Strategy: search ALL fenced code blocks for one containing a "grid" key.
+  // If multiple match, prefer the last one (the final answer).
+  const fenceRe = /```(?:json)?\s*\n?([\s\S]*?)```/g;
+  let fenceMatch;
+  let bestObj = null;
+  while ((fenceMatch = fenceRe.exec(text)) !== null) {
+    const block = fenceMatch[1].trim();
     try {
-      const obj = JSON.parse(objMatch[0]);
-      if (obj.grid && Array.isArray(obj.grid)) return obj;
+      const obj = JSON.parse(block);
+      if (obj.grid && Array.isArray(obj.grid)) bestObj = obj;
     } catch {}
   }
+  if (bestObj) return bestObj;
 
-  // Try to find a bare 2D array
-  const arrMatch = text.match(/\[\s*\[[\s\S]*?\]\s*\]/);
-  if (arrMatch) {
+  // Fallback: find a JSON object with "grid" anywhere in the text
+  // Use a pattern that matches the object containing the grid key
+  const allObjMatches = text.matchAll(/\{\s*"grid"\s*:\s*(\[[\s\S]*?\])\s*[,}]/g);
+  for (const m of allObjMatches) {
     try {
-      const grid = JSON.parse(arrMatch[0]);
+      const grid = JSON.parse(m[1]);
+      if (Array.isArray(grid) && Array.isArray(grid[0])) bestObj = { grid };
+    } catch {}
+  }
+  if (bestObj) return bestObj;
+
+  // Last resort: find the LAST bare 2D array in the text
+  const allArrMatches = [...text.matchAll(/\[\s*\[[\s\S]*?\]\s*\]/g)];
+  const lastArr = allArrMatches.length ? allArrMatches[allArrMatches.length - 1][0] : null;
+  if (lastArr) {
+    try {
+      const grid = JSON.parse(lastArr);
       if (Array.isArray(grid) && Array.isArray(grid[0])) return { grid };
     } catch {}
   }
