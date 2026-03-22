@@ -199,6 +199,12 @@ function ageClass(timestamp) {
   return '';
 }
 
+function formatLocalTime(timestamp) {
+  const ms = parseEntryTime(timestamp);
+  const d = new Date(ms);
+  return d.toLocaleString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit', second: '2-digit' });
+}
+
 function timeAgo(timestamp) {
   const diff = Math.max(0, Math.floor((Date.now() - parseEntryTime(timestamp)) / 1000));
   if (diff < 60)    return `${diff}s ago`;
@@ -254,9 +260,10 @@ function makeCard(entry) {
       ${role ? `<span class="entry-role">${role}</span>` : ''}
       ${metaBadges}
       ${ratingPips}
-      <a class="entry-ts" href="#entry-${entry.id}" title="${entry.timestamp}" onclick="event.stopPropagation();history.replaceState(null,'','#entry-${entry.id}')">${timeAgo(entry.timestamp)}</a>
+      <a class="entry-ts" href="#entry-${entry.id}" title="${formatLocalTime(entry.timestamp)}" onclick="event.stopPropagation();history.replaceState(null,'','#entry-${entry.id}')">${timeAgo(entry.timestamp)}</a>
       <button class="btn-copy-entry" data-body="${entry.body.replace(/"/g,'&quot;')}" title="Copy to clipboard">📋</button>
       ${!isRatingEntry ? `<button class="btn-rate-entry" data-id="${entry.id}" title="Rate this entry">★</button>` : ''}
+      <button class="btn-delete-entry" data-id="${entry.id}" title="Delete this entry">🗑</button>
       <span class="collapse-toggle">${collapsed ? '▸' : '▾'}</span>
     </div>
     <div class="entry-body">${bodyHtml}</div>
@@ -1227,6 +1234,28 @@ document.getElementById('entries').addEventListener('click', e => {
     const orig = copyBtn.textContent;
     copyBtn.textContent = '✓';
     setTimeout(() => { copyBtn.textContent = orig; }, 1200);
+    return;
+  }
+  const delBtn = e.target.closest('.btn-delete-entry');
+  if (delBtn) {
+    e.stopPropagation();
+    const id = delBtn.dataset.id;
+    const entry = allEntries.find(e => e.id === id);
+    const preview = entry ? `${entry.author}: ${entry.body.slice(0, 80)}${entry.body.length > 80 ? '…' : ''}` : id;
+    if (!confirm(`Delete this entry?\n\n${preview}`)) return;
+    fetch(`/api/entries/${id}`, { method: 'DELETE' })
+      .then(r => r.json())
+      .then(data => {
+        if (data.ok) {
+          allEntries = allEntries.filter(e => e.id !== id);
+          const card = document.querySelector(`.entry-card[data-id="${id}"]`);
+          if (card) card.remove();
+          renderAgentCards();
+        } else {
+          alert(data.error || 'Delete failed');
+        }
+      })
+      .catch(() => alert('Delete failed'));
   }
 });
 

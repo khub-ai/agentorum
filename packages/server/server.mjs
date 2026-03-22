@@ -1191,6 +1191,43 @@ async function handleRequest(req, res) {
     return jsonResp(res, { ok: true });
   }
 
+  // --- DELETE /api/entries/:id — remove a single entry from the chatlog ---
+  const entryDeleteMatch = pathname.match(/^\/api\/entries\/([a-f0-9]+)$/);
+  if (entryDeleteMatch && method === 'DELETE') {
+    const targetId = entryDeleteMatch[1];
+    if (!config.chatlog) return jsonResp(res, { error: 'No chatlog configured' }, 400);
+    const raw = await fsp.readFile(config.chatlog, 'utf8').catch(() => '');
+    const entries = parseEntries(raw);
+    const entry = entries.find(e => e.id === targetId);
+    if (!entry) return jsonResp(res, { error: 'Entry not found' }, 404);
+
+    // Rebuild the chatlog without the deleted entry.
+    // We re-split the raw file by entry headers and remove the matching block.
+    const normalized = raw.replace(/\r\n/g, '\n');
+    const headerMatches = [];
+    ENTRY_RE.lastIndex = 0;
+    let m;
+    while ((m = ENTRY_RE.exec(normalized)) !== null) {
+      headerMatches.push({ ts: m[1], author: m[2], headerEnd: ENTRY_RE.lastIndex, headerStart: m.index });
+    }
+    let removeStart = -1, removeEnd = -1;
+    for (let i = 0; i < headerMatches.length; i++) {
+      const { ts, author, headerEnd } = headerMatches[i];
+      const nextStart = i + 1 < headerMatches.length ? headerMatches[i+1].headerStart : normalized.length;
+      const rawBody = normalized.slice(headerEnd, nextStart).trim();
+      const id = sha256(`${ts}:${author}:${rawBody}`);
+      if (id === targetId) {
+        removeStart = headerMatches[i].headerStart;
+        removeEnd = nextStart;
+        break;
+      }
+    }
+    if (removeStart < 0) return jsonResp(res, { error: 'Entry not found in file' }, 404);
+    const updated = normalized.slice(0, removeStart) + normalized.slice(removeEnd);
+    await fsp.writeFile(config.chatlog, updated, 'utf8');
+    return jsonResp(res, { ok: true });
+  }
+
   // --- /api/scores — computed scores from rating entries ---
   if (pathname === '/api/scores' && method === 'GET') {
     const raw     = await fsp.readFile(config.chatlog, 'utf8').catch(() => '');
