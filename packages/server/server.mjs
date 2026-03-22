@@ -606,10 +606,15 @@ function evaluateRules(entry) {
         }
       }
     }
-    // every_5_entries rule: check total entry count
-    if (rule.trigger?.type === 'every_5_entries') {
+    // every_n_entries rule: check total entry count
+    // Supports spec format { type: "every_n_entries", n: 5 } and legacy { type: "every_5_entries" }
+    const triggerType = rule.trigger?.type || '';
+    const everyNMatch = triggerType.match(/^every_(\d+)_entries$/);
+    const isEveryN    = triggerType === 'every_n_entries' || everyNMatch;
+    if (isEveryN) {
+      const n = rule.trigger?.n || (everyNMatch ? parseInt(everyNMatch[1], 10) : 5);
       const total = _lastEntries.length;
-      if (total > 0 && total % 5 === 0) {
+      if (n > 0 && total > 0 && total % n === 0) {
         const participant = config.participants.find(p => p.id === rule.action?.agentId);
         if (participant && isWatcherTriggerable(participant)) {
           setTimeout(() => triggerAgent(participant), rule.action?.delayMs ?? 0);
@@ -1361,12 +1366,12 @@ ${rows}
     }
   }
 
-  // --- /api/participants ---
-  if (pathname === '/api/participants' && method === 'GET') {
+  // --- /api/participants (also aliased as /api/agents for spec compatibility) ---
+  if ((pathname === '/api/participants' || pathname === '/api/agents') && method === 'GET') {
     return jsonResp(res, config.participants.map(p => ({ ...p, ...getAgentStatus(p.id) })));
   }
 
-  const pMatch = pathname.match(/^\/api\/participants\/([^/]+)\/(\w+)$/);
+  const pMatch = pathname.match(/^\/api\/(?:participants|agents)\/([^/]+)\/(\w+)$/);
   if (pMatch) {
     const [, id, action] = pMatch;
     const participant = config.participants.find(p => p.id === id);

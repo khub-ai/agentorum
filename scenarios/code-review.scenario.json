@@ -75,7 +75,7 @@
       "id": "cr-rule-3",
       "enabled": true,
       "label": "Every 5 entries → SYNTH (2s)",
-      "trigger": { "type": "every_5_entries" },
+      "trigger": { "type": "every_n_entries", "n": 5 },
       "action": { "type": "trigger_agent", "agentId": "SYNTH", "delayMs": 2000 }
     }
   ]

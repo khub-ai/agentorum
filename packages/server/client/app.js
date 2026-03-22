@@ -177,8 +177,21 @@ function highlight(text, query) {
 // ---------------------------------------------------------------------------
 // Entry rendering
 // ---------------------------------------------------------------------------
+function parseEntryTime(timestamp) {
+  // Server generates UTC via toISOString(); interactive agents may write local time.
+  // Try 'Z' (UTC) first; if that yields a future date, fall back to local interpretation.
+  const utc   = new Date(timestamp.replace(' ', 'T') + 'Z');
+  const local = new Date(timestamp.replace(' ', 'T'));
+  const now   = Date.now();
+  // Pick whichever is not in the future; prefer UTC when both are valid
+  if (utc.getTime() <= now) return utc.getTime();
+  if (local.getTime() <= now) return local.getTime();
+  // Both in the future (clock skew) — return the closer one
+  return Math.max(utc.getTime(), local.getTime());
+}
+
 function ageClass(timestamp) {
-  const diff = (Date.now() - new Date(timestamp.replace(' ', 'T') + 'Z')) / 1000;
+  const diff = Math.max(0, (Date.now() - parseEntryTime(timestamp)) / 1000);
   if (diff < 45)   return 'age-fresh';
   if (diff < 300)  return 'age-new';
   if (diff < 3600) return 'age-recent';
@@ -186,11 +199,14 @@ function ageClass(timestamp) {
 }
 
 function timeAgo(timestamp) {
-  const diff = Math.floor((Date.now() - new Date(timestamp.replace(' ', 'T') + 'Z')) / 1000);
-  if (diff < 60)   return `${diff}s ago`;
-  if (diff < 3600) return `${Math.floor(diff/60)}m ago`;
+  const diff = Math.max(0, Math.floor((Date.now() - parseEntryTime(timestamp)) / 1000));
+  if (diff < 60)    return `${diff}s ago`;
+  if (diff < 3600)  return `${Math.floor(diff/60)}m ago`;
   if (diff < 86400) return `${Math.floor(diff/3600)}h ago`;
-  return `${Math.floor(diff/86400)}d ago`;
+  if (diff < 604800) return `${Math.floor(diff/86400)}d ago`;
+  // Older than 7 days — show the date
+  const d = new Date(parseEntryTime(timestamp));
+  return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: d.getFullYear() !== new Date().getFullYear() ? 'numeric' : undefined });
 }
 
 function makeCard(entry) {

@@ -435,10 +435,10 @@ No authentication in v1 (single-user, localhost). Authentication and network-exp
 |---|---|---|
 | GET | `/api/entries` | All entries. `?before=TIMESTAMP&limit=N` for pagination. `?type=claim` to filter by entry type. |
 | POST | `/api/entries` | Append a new entry. Body: `{ author, body, meta? }` |
-| GET | `/api/agents` | All participant statuses |
-| POST | `/api/agents/:id/start` | Start the watcher for participant `:id` |
-| POST | `/api/agents/:id/stop` | Stop the watcher for participant `:id` |
-| POST | `/api/agents/:id/trigger` | One-shot invocation of participant `:id` |
+| GET | `/api/participants` | All participant statuses (alias: `/api/agents`) |
+| POST | `/api/participants/:id/start` | Start the watcher for participant `:id` (alias: `/api/agents/:id/start`) |
+| POST | `/api/participants/:id/stop` | Stop the watcher for participant `:id` (alias: `/api/agents/:id/stop`) |
+| POST | `/api/participants/:id/trigger` | One-shot invocation of participant `:id` (alias: `/api/agents/:id/trigger`) |
 | GET | `/api/config` | Current configuration |
 | PUT | `/api/config` | Update configuration (persisted to file) |
 | GET | `/api/rules` | All automation rules |
