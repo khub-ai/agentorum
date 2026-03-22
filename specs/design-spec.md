@@ -467,6 +467,29 @@ Client → server:
 | `pong` | Keepalive response |
 | `request_entries_before` | Request older entries (pagination) |
 
+### 7.6 Runtime Architecture: Node.js Platform + Python Agent Execution
+
+Agentorum uses two runtimes with a deliberate boundary between them.
+
+**Node.js is the platform layer.** It handles HTTP, WebSockets, file watching, static serving, session management, auth (future), and rate limiting. Node's single-threaded event loop is specifically suited to high-concurrency I/O — thousands of users holding open WebSocket connections is its native workload. This is the correct choice for the web-facing layer whether the deployment is local, self-hosted, or multi-tenant cloud.
+
+**Python is the agent execution layer.** Agent orchestration, grid tools, batch evaluation, data pipelines, and visualization belong in Python because the ecosystem (numpy, pandas, matplotlib, anthropic SDK) is genuinely better for these tasks. Each use case can expose a Python microservice that the Node server calls via REST.
+
+The boundary is:
+
+| Concern | Runtime | Examples |
+|---|---|---|
+| HTTP, WebSocket, auth, routing, multi-tenancy | Node.js | `packages/server/server.mjs`, all API routes |
+| Agent orchestration, tools, knowledge base, evaluation | Python | `usecases/*/python/`, any future agent workers |
+
+**What this is not:** this is not "Python backend, Node.js frontend." The Node server is a full API gateway, not a thin static file server. Python services are worker processes invoked by the gateway — not the primary server.
+
+**Why not replace the Node server with Python (FastAPI/Django)?** Node.js has a hard runtime advantage for persistent WebSocket connections at scale, and the existing server already handles all web-layer concerns correctly. A Python rewrite would trade a real advantage for no gain. Both ecosystems handle auth, rate limiting, and multi-tenancy equally well.
+
+**Scaling model for multi-tenant (see Section 16):** Node.js instances scale horizontally behind a load balancer with sticky routing or Redis Pub/Sub for WebSocket coordination. Python worker pools scale independently based on agent execution demand. The two tiers scale at different rates and for different reasons — keeping them separate is the right call.
+
+**When a use case needs deeper UI integration:** the Python service exposes `POST /run`, `GET /status/:id` endpoints; the Node server proxies to it. No Node.js agent logic is needed.
+
 ---
 
 ## 8. GUI Design
@@ -1118,7 +1141,7 @@ This is the most pervasive change — touches every API route — but is entirel
 
 ### Additional infrastructure concerns
 
-**WebSocket scaling:** one process currently serves one workspace. Multi-user hosted deployment needs sticky routing (NGINX upstream hash) or a pub/sub layer (Redis Pub/Sub) so horizontal server scaling works without dropping WebSocket connections. Event contracts unchanged.
+**WebSocket scaling:** one process currently serves one workspace. Multi-user hosted deployment needs sticky routing (NGINX upstream hash) or a pub/sub layer (Redis Pub/Sub) so horizontal server scaling works without dropping WebSocket connections. Event contracts unchanged. Node.js is the correct runtime for this layer — see Section 7.6 for the rationale and the Node.js / Python runtime boundary. Python agent execution workers scale independently from the Node.js API gateway tier.
 
 **Data privacy and compliance:** chatlogs will contain sensitive material (investment deliberations, medical discussions, legal matters). Design requirements before launch: encryption at rest and in transit, data residency options (EU hosting for GDPR), right-to-deletion, audit log of data access. The local-first model sidesteps all of this by default — users own their own data entirely.
 
