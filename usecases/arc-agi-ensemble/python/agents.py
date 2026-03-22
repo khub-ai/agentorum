@@ -129,13 +129,20 @@ async def call_agent(
 async def run_solvers_round1(
     task: dict,
     prior_knowledge: str = "",
+    human_hypothesis: str = "",
 ) -> list[SolverEntry]:
     """Run all three solvers in parallel for Round 1."""
     task_text = format_task_for_prompt(task)
     knowledge_section = (
         f"\n## Prior Knowledge\n{prior_knowledge}\n" if prior_knowledge.strip() else ""
     )
-    user_msg = f"{knowledge_section}\n{task_text}\n\nPlease propose your solution."
+    human_section = (
+        f"\n## Human Hypothesis\n{human_hypothesis}\n"
+        "(A human member of the ensemble has offered this observation — "
+        "consider it, but form your own independent analysis.)\n"
+        if human_hypothesis.strip() else ""
+    )
+    user_msg = f"{knowledge_section}{human_section}\n{task_text}\n\nPlease propose your solution."
 
     async def run_one(agent_id: str, round_num: int) -> SolverEntry:
         text, ms = await call_agent(agent_id, user_msg)
@@ -272,6 +279,7 @@ async def run_mediator(
     r3_entries: list[SolverEntry],
     prior_knowledge: str = "",
     converged_early: bool = False,
+    human_insight: str = "",
 ) -> MediatorDecision:
     """Ask MEDIATOR to pick the best answer and extract knowledge."""
     task_text = format_task_for_prompt(task)
@@ -288,14 +296,17 @@ async def run_mediator(
     knowledge_section = (
         f"\n## Prior Knowledge\n{prior_knowledge}\n" if prior_knowledge.strip() else ""
     )
+    human_section = (
+        f"\n## Human Insight\n{human_insight}\n" if human_insight.strip() else ""
+    )
     convergence_note = (
         "\n**Note:** All solvers converged in Round 1 and CRITIC confirmed. "
-        "Rounds 3 was skipped.\n"
+        "Round 3 was skipped.\n"
         if converged_early else ""
     )
 
     user_msg = (
-        f"{knowledge_section}"
+        f"{knowledge_section}{human_section}"
         f"{task_text}\n\n"
         f"{convergence_note}"
         f"{fmt_entries(r1_entries, 'Round 1 proposals')}\n\n"

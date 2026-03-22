@@ -26,6 +26,7 @@ from agents import (
     run_solvers_round1, run_critic, run_solvers_round3, run_mediator,
 )
 from knowledge import KnowledgeBase
+import display as disp
 
 
 # ---------------------------------------------------------------------------
@@ -133,16 +134,34 @@ async def run_ensemble(
     log(f"Prior KB: {knowledge_base.stats()}")
 
     # ------------------------------------------------------------------
+    # Checkpoint 0 — Show puzzle, ask for human hypothesis
+    # ------------------------------------------------------------------
+    human_hypothesis = ""
+    if human_in_loop:
+        disp.show_puzzle(task, task_id)
+        human_hypothesis = disp.human_hypothesis_checkpoint(task_id)
+        if human_hypothesis:
+            log(f"  Human hypothesis: {human_hypothesis[:80]}")
+
+    # ------------------------------------------------------------------
     # Round 1 — Parallel solver proposals
     # ------------------------------------------------------------------
     log("Round 1: solvers proposing…")
     t_r1 = time.time()
-    r1_entries = await run_solvers_round1(task, prior_knowledge=prior_knowledge)
+    r1_entries = await run_solvers_round1(
+        task,
+        prior_knowledge=prior_knowledge,
+        human_hypothesis=human_hypothesis,
+    )
     meta.solvers_r1 = r1_entries
     log(f"  Done in {time.time()-t_r1:.1f}s")
     for e in r1_entries:
         shape_str = summarize(e.grid) if e.grid else "(no grid)"
         log(f"  {e.agent}: {e.confidence}  rule={e.rule[:60]}  grid={shape_str}")
+
+    # Checkpoint 1 — Show R1 proposals
+    if human_in_loop:
+        disp.show_r1_proposals(r1_entries)
 
     # Convergence check
     early_converge = False
@@ -159,6 +178,15 @@ async def run_ensemble(
 
     all_pass = all(v == "PASS" for v in critic_verdict.verdicts.values())
 
+    # Checkpoint 2 — Show CRITIC results, ask for insight
+    human_r3_insight = ""
+    if human_in_loop:
+        disp.show_critic_results(r1_entries, critic_verdict)
+        if not (all_pass and _all_converged(r1_entries)):
+            human_r3_insight = disp.human_post_critic_checkpoint()
+            if human_r3_insight:
+                log(f"  Human R3 insight: {human_r3_insight[:80]}")
+
     if _all_converged(r1_entries) and all_pass:
         log("  → CRITIC confirmed convergence. Skipping Round 3.")
         early_converge = True
@@ -170,16 +198,10 @@ async def run_ensemble(
         log("Round 3: solvers revising…")
         t_r3 = time.time()
 
-        human_insight = ""
-        if human_in_loop and _detect_stalemate(r1_entries, []):
-            # Pre-stalemate check: if CRITIC rejected all, may be worth asking now
-            if not any(v == "PASS" for v in critic_verdict.verdicts.values()):
-                human_insight = _prompt_human(task_id, r1_entries, [])
-
         r3_entries = await run_solvers_round3(
             task, r1_entries, critic_verdict,
             prior_knowledge=prior_knowledge,
-            human_insight=human_insight,
+            human_insight=human_r3_insight,
         )
         meta.solvers_r3 = r3_entries
         log(f"  Done in {time.time()-t_r3:.1f}s")
@@ -187,12 +209,14 @@ async def run_ensemble(
             shape_str = summarize(e.grid) if e.grid else "(no grid)"
             log(f"  {e.agent}: {e.confidence}  rule={e.rule[:60]}  grid={shape_str}")
 
-        # Post-R3 stalemate check
-        if human_in_loop and _detect_stalemate(r1_entries, r3_entries):
-            human_insight = _prompt_human(task_id, r1_entries, r3_entries)
-            if human_insight:
-                log(f"  Human insight received: {human_insight[:80]}")
-                knowledge_base.add_human_insight(human_insight, tasks=[task_id])
+    # Checkpoint 3 — Show R3 proposals, ask for final insight
+    human_mediator_insight = ""
+    if human_in_loop and r3_entries:
+        disp.show_r3_proposals(r1_entries, r3_entries, critic_verdict)
+        human_mediator_insight = disp.human_pre_mediator_checkpoint()
+        if human_mediator_insight:
+            log(f"  Human mediator insight: {human_mediator_insight[:80]}")
+            knowledge_base.add_human_insight(human_mediator_insight, tasks=[task_id])
 
     # ------------------------------------------------------------------
     # Round 4 — MEDIATOR
@@ -205,6 +229,7 @@ async def run_ensemble(
         r3_entries=r3_entries,
         prior_knowledge=prior_knowledge,
         converged_early=early_converge,
+        human_insight=human_mediator_insight,
     )
     meta.mediator = mediator_result
     grid_str = summarize(mediator_result.answer) if mediator_result.answer else "(no grid)"
@@ -228,6 +253,10 @@ async def run_ensemble(
 
     if verbose:
         print_task_summary(meta, expected)
+
+    # Checkpoint 4 — Final result
+    if human_in_loop:
+        disp.show_final_result(meta, expected)
 
     return meta
 
