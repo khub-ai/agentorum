@@ -580,6 +580,203 @@ function broadcastAgentStatus(id) {
 }
 
 // ---------------------------------------------------------------------------
+// Ensemble endpoint — orchestrated multi-agent debate
+// ---------------------------------------------------------------------------
+
+function extractJsonGrid(text) {
+  // Try fenced code block first
+  const fenced = text.match(/```(?:json)?\s*\n?([\s\S]*?)```/);
+  const jsonStr = fenced ? fenced[1].trim() : text;
+
+  // Try to parse as a complete JSON object with a "grid" field
+  try {
+    const obj = JSON.parse(jsonStr);
+    if (obj.grid && Array.isArray(obj.grid)) return obj;
+  } catch {}
+
+  // Try to find a JSON object anywhere in the text
+  const objMatch = text.match(/\{[\s\S]*?"grid"\s*:\s*\[[\s\S]*?\]\s*\}/);
+  if (objMatch) {
+    try {
+      const obj = JSON.parse(objMatch[0]);
+      if (obj.grid && Array.isArray(obj.grid)) return obj;
+    } catch {}
+  }
+
+  // Try to find a bare 2D array
+  const arrMatch = text.match(/\[\s*\[[\s\S]*?\]\s*\]/);
+  if (arrMatch) {
+    try {
+      const grid = JSON.parse(arrMatch[0]);
+      if (Array.isArray(grid) && Array.isArray(grid[0])) return { grid };
+    } catch {}
+  }
+
+  return null;
+}
+
+function gridsEqual(a, b) {
+  if (!a || !b) return false;
+  if (a.length !== b.length) return false;
+  for (let i = 0; i < a.length; i++) {
+    if (a[i].length !== b[i].length) return false;
+    for (let j = 0; j < a[i].length; j++) {
+      if (a[i][j] !== b[i][j]) return false;
+    }
+  }
+  return true;
+}
+
+function formatTaskForPrompt(task) {
+  let s = 'Here is an ARC-AGI puzzle. Study the demonstration pairs to discover the transformation rule, then apply it to the test input.\n\n';
+  task.train.forEach((pair, i) => {
+    s += `**Demo ${i + 1} — Input:**\n\`\`\`json\n${JSON.stringify(pair.input)}\n\`\`\`\n`;
+    s += `**Demo ${i + 1} — Output:**\n\`\`\`json\n${JSON.stringify(pair.output)}\n\`\`\`\n\n`;
+  });
+  s += `**Test Input:**\n\`\`\`json\n${JSON.stringify(task.test[0].input)}\n\`\`\`\n\n`;
+  s += 'What is the test output? Apply the transformation rule you discovered from the demo pairs.';
+  return s;
+}
+
+function formatDebateLog(log) {
+  return log.map(e => `**[Round ${e.round} — ${e.agent}]:**\n${e.content}`).join('\n\n---\n\n');
+}
+
+async function callAgent(participant, prompt, maxTokens = 4096) {
+  const provider = participant.apiProvider || 'anthropic';
+  const model    = participant.apiModel || getDefaultModel(provider);
+  if (provider === 'openai')    return callOpenAI(model, participant, prompt);
+  if (provider === 'google')    return callGoogle(model, participant, prompt);
+  return callAnthropic(model, participant, prompt);
+}
+
+async function runEnsemble(body) {
+  const startMs = Date.now();
+  const { prompt, task, context, config: userConfig } = body;
+
+  // Load scenario config and prompts
+  const scenarioPath = userConfig?.scenarioPath
+    || path.resolve(__dirname, '../../usecases/arc-agi-ensemble/arc-agi-ensemble.scenario.json');
+  const scenario = JSON.parse(await fsp.readFile(scenarioPath, 'utf8'));
+  const scenarioDir = path.dirname(scenarioPath);
+
+  // Build participant objects with system prompts loaded from files
+  const participants = {};
+  for (const p of scenario.participants) {
+    const promptFile = p.systemPromptFile
+      ? path.resolve(scenarioDir, p.systemPromptFile)
+      : null;
+    const systemPrompt = promptFile
+      ? await fsp.readFile(promptFile, 'utf8').catch(() => '')
+      : '';
+    participants[p.id] = { ...p, systemPrompt };
+  }
+
+  const solverIds  = ['SOLVER-SPATIAL', 'SOLVER-PROCEDURAL', 'SOLVER-ANALOGICAL'];
+  const maxRounds  = userConfig?.maxRounds ?? scenario.ensemble?.maxRounds ?? 4;
+  const convergenceEnabled = userConfig?.convergenceEnabled ?? scenario.ensemble?.convergenceEnabled ?? true;
+
+  // Build the initial task prompt
+  const arcTask    = task || (typeof prompt === 'string' ? JSON.parse(prompt) : prompt);
+  const taskPrompt = formatTaskForPrompt(arcTask);
+  const contextStr = context ? `\n\n**Context from previous tasks:**\n${context}` : '';
+
+  const debate = [];
+  let converged = false;
+  let totalTokens = 0;
+
+  // ── Round 1: Three solvers propose independently (parallel) ──────────
+  console.log('[ensemble] Round 1: solvers propose...');
+  const round1Results = await Promise.all(
+    solverIds.map(async id => {
+      const content = await callAgent(participants[id], taskPrompt + contextStr);
+      return { round: 1, agent: id, content };
+    })
+  );
+  debate.push(...round1Results);
+
+  // Check convergence: all three grids identical?
+  const round1Grids = round1Results.map(r => extractJsonGrid(r.content));
+  const allSame = round1Grids[0]?.grid
+    && round1Grids.every(g => g?.grid && gridsEqual(g.grid, round1Grids[0].grid));
+
+  if (allSame && convergenceEnabled) {
+    console.log('[ensemble] All solvers agree — running CRITIC confirmation...');
+    const confirmPrompt = taskPrompt + '\n\n' + formatDebateLog(debate)
+      + '\n\nAll three solvers produced the same answer. Verify it against ALL demo pairs. Confirm or challenge.';
+    const criticContent = await callAgent(participants['CRITIC'], confirmPrompt);
+    debate.push({ round: 2, agent: 'CRITIC', content: criticContent });
+
+    const confirmed = /\bPASS\b/i.test(criticContent) && !/\bFAIL\b/i.test(criticContent);
+    if (confirmed) {
+      console.log('[ensemble] CRITIC confirmed — converged in 2 rounds.');
+      const mediatorPrompt = taskPrompt + '\n\n' + formatDebateLog(debate)
+        + '\n\nAll solvers agree and CRITIC confirmed. Endorse the consensus answer and extract a lesson.' + contextStr;
+      const mediatorContent = await callAgent(participants['MEDIATOR'], mediatorPrompt);
+      debate.push({ round: 3, agent: 'MEDIATOR', content: mediatorContent });
+
+      const finalGrid = extractJsonGrid(mediatorContent) || round1Grids[0];
+      converged = true;
+      return {
+        answer: finalGrid?.grid || null,
+        debate,
+        metadata: {
+          rounds: 3, converged: true,
+          durationMs: Date.now() - startMs,
+          agents: Object.keys(participants).length
+        }
+      };
+    }
+    // CRITIC challenged — fall through to Round 3
+  }
+
+  // ── Round 2: CRITIC evaluates (if not convergence path) ──────────────
+  if (!allSame || !convergenceEnabled) {
+    console.log('[ensemble] Round 2: CRITIC evaluates...');
+    const criticPrompt = taskPrompt + '\n\n' + formatDebateLog(debate)
+      + '\n\nEvaluate each solver\'s proposed rule. Apply each rule to ALL demo pairs and report PASS or FAIL for each.';
+    const criticContent = await callAgent(participants['CRITIC'], criticPrompt);
+    debate.push({ round: 2, agent: 'CRITIC', content: criticContent });
+  }
+
+  // ── Round 3: Solvers revise based on CRITIC feedback (parallel) ──────
+  if (maxRounds >= 3) {
+    console.log('[ensemble] Round 3: solvers revise...');
+    const round3Results = await Promise.all(
+      solverIds.map(async id => {
+        const revisePrompt = taskPrompt + '\n\n' + formatDebateLog(debate)
+          + `\n\nYou are ${id}. The CRITIC has evaluated your proposal and the other solvers' proposals. `
+          + 'Revise your answer if the CRITIC found flaws, or defend it with more detail. '
+          + 'Also consider the other solvers\' proposals — can you improve your answer by incorporating their insights?' + contextStr;
+        const content = await callAgent(participants[id], revisePrompt);
+        return { round: 3, agent: id, content };
+      })
+    );
+    debate.push(...round3Results);
+  }
+
+  // ── Round 4: MEDIATOR makes final decision ───────────────────────────
+  console.log('[ensemble] Round 4: MEDIATOR decides...');
+  const mediatorPrompt = taskPrompt + '\n\n' + formatDebateLog(debate)
+    + '\n\nYou have read the full debate. Make your final decision: produce the output grid. '
+    + 'Explain your reasoning, then output the grid in JSON format.' + contextStr;
+  const mediatorContent = await callAgent(participants['MEDIATOR'], mediatorPrompt);
+  debate.push({ round: 4, agent: 'MEDIATOR', content: mediatorContent });
+
+  const finalGrid = extractJsonGrid(mediatorContent);
+
+  return {
+    answer: finalGrid?.grid || null,
+    debate,
+    metadata: {
+      rounds: maxRounds, converged,
+      durationMs: Date.now() - startMs,
+      agents: Object.keys(participants).length
+    }
+  };
+}
+
+// ---------------------------------------------------------------------------
 // Automation rules
 // ---------------------------------------------------------------------------
 // Returns true if this participant can be triggered via the watcher/subprocess or API path.
@@ -1467,6 +1664,24 @@ ${rows}
       broadcast({ type: 'config_updated', config });
     }
     return jsonResp(res, { ok: true });
+  }
+
+  // ---------------------------------------------------------------------------
+  // POST /api/ensemble — synchronous multi-agent ensemble endpoint
+  //
+  // Orchestrates a structured debate among API-mode agents and returns a
+  // single consolidated answer.  The ensemble appears as one agent to the
+  // caller.  Currently supports ARC-AGI-2 tasks but the protocol is generic.
+  // ---------------------------------------------------------------------------
+  if (pathname === '/api/ensemble' && method === 'POST') {
+    try {
+      const body = JSON.parse(await readBody(req));
+      const result = await runEnsemble(body);
+      return jsonResp(res, result);
+    } catch (err) {
+      console.error('[ensemble] error:', err);
+      return jsonResp(res, { error: err.message }, 500);
+    }
   }
 
   jsonResp(res, { error: 'not found' }, 404);

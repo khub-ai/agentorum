@@ -12,6 +12,7 @@ Each use case includes:
 | Use case | Domain | Bundle | Status |
 |---|---|---|---|
 | [Software Development Review](./software-dev-review/) | Software engineering | `software-dev-review.bundle.json` | ✅ Ready |
+| [ARC-AGI Ensemble](./arc-agi-ensemble/) | Abstract reasoning / benchmarking | `arc-agi-ensemble.scenario.json` | ✅ Ready |
 | [Agent Ensemble as Super Intelligence](./agent-ensemble-superintelligence/) | AI research / benchmarking | coming soon | In development |
 | [VLM Ensemble Image Analysis](./vlm-ensemble-image-analysis/) | Computer vision / multi-domain | coming soon | Planned |
 | [Adversarial Learning](./adversarial-learning/) | AI research / persistable learning | coming soon | Planned |
