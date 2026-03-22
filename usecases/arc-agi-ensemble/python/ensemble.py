@@ -1,16 +1,16 @@
 """
 ensemble.py — Main orchestrator for the ARC-AGI debate ensemble.
 
-Implements the 4-round debate protocol with convergence shortcut,
-rule-based knowledge injection, human-in-the-loop, and metadata capture.
+New architecture: reasoning separated from execution.
 
 Protocol:
-  Round 0:  Rule matching — evaluate active rules against puzzle (one LLM call)
-  Round 1:  Three solvers propose in parallel (with matched rules injected)
-            → convergence check: if all agree + CRITIC confirms → skip R3
-  Round 2:  CRITIC evaluates all proposals
-  Round 3:  Solvers revise in parallel (skipped if early convergence)
-  Round 4:  MEDIATOR produces final answer + proposes rule updates
+  Round 0:  Rule matching — evaluate active rules against puzzle
+  Round 1:  Three solvers propose TEXT-ONLY hypotheses (parallel)
+  Round 2:  MEDIATOR synthesizes hypotheses into pseudo-code
+  Round 3:  EXECUTOR runs pseudo-code against all demo pairs (deterministic)
+            if all pass -> apply to test input -> done
+            if fail -> MEDIATOR revises (up to MAX_REVISIONS times)
+  Final:    MEDIATOR updates rules based on outcome
 """
 
 from __future__ import annotations
@@ -18,104 +18,34 @@ import asyncio
 import time
 from typing import Optional
 
-from grid_tools import Grid, grids_equal, grid_to_str, summarize
-from metadata import (
-    TaskMetadata, SolverEntry, compute_outcome,
-    print_task_summary,
-)
+from grid_tools import Grid, grids_equal, summarize
+from metadata import TaskMetadata, SolverEntry, MediatorDecision, compute_outcome, print_task_summary
 from agents import (
-    run_solvers_round1, run_critic, run_solvers_round3, run_mediator,
+    run_solvers_round1, run_mediator_synthesize, run_mediator_revise,
     call_agent, format_task_for_prompt, DEFAULT_MODEL,
 )
-from rules import RuleEngine, RuleMatch, FiringResult
+from executor import run_executor, ExecutionResult, format_execution_trace, tool_signatures
+from rules import RuleEngine, RuleMatch
 import display as disp
 
-
-# ---------------------------------------------------------------------------
-# Convergence check
-# ---------------------------------------------------------------------------
-
-def _all_converged(entries: list[SolverEntry]) -> bool:
-    """True if all three solvers produced identical non-None grids."""
-    grids = [e.grid for e in entries if e.grid is not None]
-    if len(grids) < len(entries):
-        return False
-    ref = grids[0]
-    return all(grids_equal(ref, g) for g in grids[1:])
+MAX_REVISIONS = 2  # how many times MEDIATOR can revise pseudo-code after failure
 
 
 # ---------------------------------------------------------------------------
 # Rule matching (Round 0)
 # ---------------------------------------------------------------------------
 
-async def _match_rules(
-    rule_engine: RuleEngine,
-    task: dict,
-) -> list[RuleMatch]:
-    """
-    One cheap LLM call to evaluate which rules' conditions match this puzzle.
-    Returns ranked list of matches.
-    """
-    if not rule_engine.active_rules():
-        return []
-
-    task_text = format_task_for_prompt(task)
-    user_msg = rule_engine.build_match_prompt(task_text)
-
-    # Use a small/fast model for matching — it's a classification task
-    text, _ms = await call_agent.__wrapped__(
-        agent_id="MEDIATOR",  # reuse MEDIATOR's system prompt for context
-        user_message=user_msg,
-        max_tokens=1024,
-    ) if hasattr(call_agent, '__wrapped__') else (
-        # Direct call if no wrapper
-        await _match_rules_direct(rule_engine, task_text)
-    )
-
-    return rule_engine.parse_match_response(text)
-
-
-async def _match_rules_direct(
-    rule_engine: RuleEngine,
-    task_text: str,
-) -> tuple[str, int]:
-    """Direct rule matching call."""
-    user_msg = rule_engine.build_match_prompt(task_text)
-    text, ms = await call_agent("MEDIATOR", user_msg, max_tokens=1024)
-    return text, ms
-
-
 async def match_rules(
     rule_engine: RuleEngine,
     task: dict,
 ) -> list[RuleMatch]:
-    """
-    Evaluate which rules match this puzzle. Returns ranked matches.
-    """
+    """Evaluate which rules match this puzzle. Returns ranked matches."""
     if not rule_engine.active_rules():
         return []
-
     task_text = format_task_for_prompt(task)
     user_msg = rule_engine.build_match_prompt(task_text)
     text, _ms = await call_agent("MEDIATOR", user_msg, max_tokens=1024)
     return rule_engine.parse_match_response(text)
-
-
-# ---------------------------------------------------------------------------
-# Human-in-the-loop
-# ---------------------------------------------------------------------------
-
-def _detect_stalemate(
-    r1_entries: list[SolverEntry],
-    r3_entries: list[SolverEntry],
-) -> bool:
-    """
-    True if Round 3 solvers didn't converge AND didn't improve meaningfully
-    over Round 1 (all still disagree).
-    """
-    if not r3_entries:
-        return False
-    return not _all_converged(r3_entries)
 
 
 # ---------------------------------------------------------------------------
@@ -131,18 +61,9 @@ async def run_ensemble(
     verbose: bool = True,
 ) -> TaskMetadata:
     """
-    Run the full debate ensemble on a single ARC-AGI task.
+    Run the full ensemble on a single ARC-AGI task.
 
-    Args:
-        task:          ARC task dict with 'train' and 'test' keys
-        task_id:       Human-readable ID for logging
-        expected:      Known solution (for evaluation; can be None)
-        rule_engine:   RuleEngine instance (created if None)
-        human_in_loop: If True, show rich checkpoints and prompt for input
-        verbose:       Print progress output
-
-    Returns:
-        TaskMetadata with all intermediate results and outcome.
+    Flow: Rule match -> Solvers (text) -> MEDIATOR (pseudo-code) -> EXECUTOR -> revise loop
     """
     if rule_engine is None:
         rule_engine = RuleEngine()
@@ -162,13 +83,13 @@ async def run_ensemble(
             print(msg)
 
     log(f"\n{'-'*50}", force=True)
-    log(f"Task: {task_id}  ({meta.train_pairs} demos, test {meta.test_shape[0]}×{meta.test_shape[1]})", force=True)
+    log(f"Task: {task_id}  ({meta.train_pairs} demos, test {meta.test_shape[0]}x{meta.test_shape[1]})", force=True)
     log(f"Model: {DEFAULT_MODEL}  |  Rules: {rule_engine.stats_summary()}", force=True)
 
     # ------------------------------------------------------------------
     # Round 0 — Rule matching
     # ------------------------------------------------------------------
-    log("Round 0: matching rules…", force=True)
+    log("Round 0: matching rules...", force=True)
     matched_rules = await match_rules(rule_engine, task)
     fired_ids = [m.rule_id for m in matched_rules]
 
@@ -193,9 +114,9 @@ async def run_ensemble(
             log(f"  Human hypothesis: {human_hypothesis[:80]}")
 
     # ------------------------------------------------------------------
-    # Round 1 — Parallel solver proposals
+    # Round 1 — Parallel solver hypotheses (TEXT ONLY)
     # ------------------------------------------------------------------
-    log("Round 1: solvers proposing…", force=True)
+    log("Round 1: solvers proposing hypotheses...", force=True)
     t_r1 = time.time()
     r1_entries = await run_solvers_round1(
         task,
@@ -205,95 +126,96 @@ async def run_ensemble(
     meta.solvers_r1 = r1_entries
     log(f"  Done in {time.time()-t_r1:.1f}s", force=True)
     for e in r1_entries:
-        shape_str = summarize(e.grid) if e.grid else "(no grid)"
-        log(f"  {e.agent}: {e.confidence}  rule={e.rule[:60]}  grid={shape_str}")
+        log(f"  {e.agent}: {e.confidence}  rule={e.rule[:80]}")
 
     if human_in_loop:
-        disp.show_r1_proposals(r1_entries)
-
-    # Convergence check
-    early_converge = False
-    if _all_converged(r1_entries):
-        log("  → All solvers CONVERGED in Round 1, running CRITIC to confirm…", force=True)
+        disp.show_r1_hypotheses(r1_entries)
 
     # ------------------------------------------------------------------
-    # Round 2 — CRITIC
+    # Round 2 — MEDIATOR synthesizes pseudo-code
     # ------------------------------------------------------------------
-    log("Round 2: CRITIC evaluating…", force=True)
-    critic_verdict = await run_critic(task, r1_entries)
-    meta.critic = critic_verdict
-    log(f"  Verdicts: {critic_verdict.verdicts}", force=True)
-
-    all_pass = all(v == "PASS" for v in critic_verdict.verdicts.values())
-
-    human_r3_insight = ""
+    human_r2_insight = ""
     if human_in_loop:
-        disp.show_critic_results(r1_entries, critic_verdict, expected=expected)
-        if not (all_pass and _all_converged(r1_entries)):
-            human_r3_insight = disp.human_post_critic_checkpoint()
-            if human_r3_insight:
-                log(f"  Human R3 insight: {human_r3_insight[:80]}")
+        human_r2_insight = disp.human_post_hypotheses_checkpoint()
 
-    if _all_converged(r1_entries) and all_pass:
-        log("  → CRITIC confirmed convergence. Skipping Round 3.")
-        early_converge = True
-        r3_entries: list[SolverEntry] = []
-    else:
-        # ------------------------------------------------------------------
-        # Round 3 — Solver revisions
-        # ------------------------------------------------------------------
-        log("Round 3: solvers revising…", force=True)
-        t_r3 = time.time()
+    log("Round 2: MEDIATOR synthesizing pseudo-code...", force=True)
+    t_r2 = time.time()
 
-        r3_entries = await run_solvers_round3(
-            task, r1_entries, critic_verdict,
-            prior_knowledge=rules_prompt_section,
-            human_insight=human_r3_insight,
-        )
-        meta.solvers_r3 = r3_entries
-        log(f"  Done in {time.time()-t_r3:.1f}s", force=True)
-        for e in r3_entries:
-            shape_str = summarize(e.grid) if e.grid else "(no grid)"
-            log(f"  {e.agent}: {e.confidence}  rule={e.rule[:60]}  grid={shape_str}")
+    rule_section = rule_engine.build_mediator_rule_section(matched_rules, success=True)
 
-    human_mediator_insight = ""
-    if human_in_loop and r3_entries:
-        disp.show_r3_proposals(r1_entries, r3_entries, critic_verdict, expected=expected)
-        human_mediator_insight = disp.human_pre_mediator_checkpoint()
-        if human_mediator_insight:
-            log(f"  Human mediator insight: {human_mediator_insight[:80]}", force=True)
-
-    # ------------------------------------------------------------------
-    # Round 4 — MEDIATOR (with rule system section)
-    # ------------------------------------------------------------------
-    log(f"Round {'3 (early)' if early_converge else '4'}: MEDIATOR deciding…", force=True)
-
-    # Build rule section for MEDIATOR (will be appended to its user message)
-    # We pass success=None here; the actual success isn't known yet.
-    # MEDIATOR gets rule context and decides on updates after seeing the full debate.
-    mediator_rule_section = rule_engine.build_mediator_rule_section(
-        matched_rules, success=True  # optimistic; we update stats after
-    )
-
-    mediator_result = await run_mediator(
+    mediator_text, pseudocode, mediator_ms = await run_mediator_synthesize(
         task=task,
-        r1_entries=r1_entries,
-        critic_verdict=critic_verdict,
-        r3_entries=r3_entries,
+        solver_entries=r1_entries,
         prior_knowledge=rules_prompt_section,
-        converged_early=early_converge,
-        human_insight=human_mediator_insight,
-        rule_section=mediator_rule_section,
+        human_insight=human_r2_insight or human_hypothesis,
+        rule_section=rule_section,
     )
-    meta.mediator = mediator_result
-    grid_str = summarize(mediator_result.answer) if mediator_result.answer else "(no grid)"
-    log(f"  Answer: {grid_str}", force=True)
+    log(f"  Done in {time.time()-t_r2:.1f}s  |  {len(pseudocode)} steps", force=True)
+    for s in pseudocode:
+        log(f"    Step {s.get('step', '?')}: {s.get('tool', '?')}({s.get('args', {})})")
+
+    if human_in_loop:
+        disp.show_pseudocode(pseudocode, mediator_text)
 
     # ------------------------------------------------------------------
-    # Finalize metadata
+    # Round 3 — EXECUTOR runs pseudo-code (deterministic)
     # ------------------------------------------------------------------
+    log("Round 3: EXECUTOR running pseudo-code against demos...", force=True)
+
+    exec_result: ExecutionResult = run_executor(pseudocode, task)
+    attempt = 1
+
+    if human_in_loop:
+        disp.show_execution_result(exec_result, expected=expected)
+
+    # ------------------------------------------------------------------
+    # Revision loop — MEDIATOR revises on failure
+    # ------------------------------------------------------------------
+    while not exec_result.all_pass and attempt <= MAX_REVISIONS:
+        log(f"  FAILED on {sum(1 for d in exec_result.demos if not d.passed)} demo(s). "
+            f"Revision {attempt}/{MAX_REVISIONS}...", force=True)
+
+        trace_text = format_execution_trace(exec_result)
+
+        human_revision_insight = ""
+        if human_in_loop:
+            human_revision_insight = disp.human_revision_checkpoint(attempt)
+
+        mediator_text, pseudocode, rev_ms = await run_mediator_revise(
+            task=task,
+            solver_entries=r1_entries,
+            previous_pseudocode=pseudocode,
+            execution_trace=trace_text,
+            human_insight=human_revision_insight,
+        )
+        mediator_ms += rev_ms
+        log(f"  Revised: {len(pseudocode)} steps", force=True)
+
+        if human_in_loop:
+            disp.show_pseudocode(pseudocode, mediator_text, revision=attempt)
+
+        exec_result = run_executor(pseudocode, task)
+        attempt += 1
+
+        if human_in_loop:
+            disp.show_execution_result(exec_result, expected=expected)
+
+    # ------------------------------------------------------------------
+    # Build final metadata
+    # ------------------------------------------------------------------
+    final_answer = exec_result.test_output
+    total_rounds = 2 + attempt  # R0 + R1 + R2 + executor attempts
+
+    meta.mediator = MediatorDecision(
+        round=total_rounds,
+        answer=final_answer,
+        rationale=mediator_text[:800] if mediator_text else "",
+        converged=exec_result.all_pass,
+        raw_response=mediator_text or "",
+        duration_ms=mediator_ms,
+    )
     meta.total_duration_ms = int(time.time() * 1000) - meta.start_ms
-    meta.rounds_completed = 3 if early_converge else 4
+    meta.rounds_completed = total_rounds
     compute_outcome(meta, expected)
 
     success = meta.correct or False
@@ -311,17 +233,15 @@ async def run_ensemble(
     # Parse MEDIATOR rule updates
     # ------------------------------------------------------------------
     rule_changes: list[dict] = []
-    if mediator_result.raw_response:
-        rule_changes = rule_engine.parse_mediator_rule_updates(
-            mediator_result.raw_response, task_id
-        )
+    if mediator_text:
+        rule_changes = rule_engine.parse_mediator_rule_updates(mediator_text, task_id)
         if rule_changes:
             log(f"  Rule updates: {len(rule_changes)} rule(s) created/modified", force=True)
 
     if verbose and not human_in_loop:
         print_task_summary(meta, expected)
 
-    # Checkpoint 4 — Final result + rule changes
+    # Final display
     if human_in_loop:
         disp.show_final_result(meta, expected)
         if rule_changes or matched_rules:
@@ -331,7 +251,7 @@ async def run_ensemble(
 
 
 # ---------------------------------------------------------------------------
-# Sync wrapper (for use from non-async code)
+# Sync wrapper
 # ---------------------------------------------------------------------------
 
 def run_ensemble_sync(

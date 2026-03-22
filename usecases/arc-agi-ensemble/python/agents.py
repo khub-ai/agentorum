@@ -7,7 +7,9 @@ injects prior knowledge and task context, and returns structured responses.
 
 from __future__ import annotations
 import asyncio
+import json
 import os
+import re
 import time
 from pathlib import Path
 from typing import Optional
@@ -15,10 +17,7 @@ from typing import Optional
 import anthropic
 
 from grid_tools import Grid, grid_to_str, summarize
-from metadata import (
-    SolverEntry, CriticVerdict, MediatorDecision,
-    extract_solver_fields, extract_critic_verdicts, extract_json_grid,
-)
+from metadata import SolverEntry, MediatorDecision, extract_json_grid
 
 # ---------------------------------------------------------------------------
 # Paths
@@ -30,7 +29,6 @@ PROMPT_FILES = {
     "SOLVER-SPATIAL":     PROMPTS_DIR / "solver-spatial.md",
     "SOLVER-PROCEDURAL":  PROMPTS_DIR / "solver-procedural.md",
     "SOLVER-ANALOGICAL":  PROMPTS_DIR / "solver-analogical.md",
-    "CRITIC":             PROMPTS_DIR / "critic.md",
     "MEDIATOR":           PROMPTS_DIR / "mediator.md",
 }
 
@@ -72,22 +70,12 @@ def format_task_for_prompt(task: dict) -> str:
         lines.append(grid_to_str(pair["input"]))
         lines.append("**Output:**")
         lines.append(grid_to_str(pair["output"]))
-        lines.append(f"*Shape: {summarize(pair['input'])} → {summarize(pair['output'])}*\n")
+        lines.append(f"*Shape: {summarize(pair['input'])} -> {summarize(pair['output'])}*\n")
     for i, t in enumerate(task.get("test", []), 1):
         lines.append(f"### Test input {i}")
         lines.append(grid_to_str(t["input"]))
-        lines.append(f"*Shape: {summarize(t['input'])}*\n")
-    return "\n".join(lines)
-
-def format_debate_for_prompt(debate: list[dict]) -> str:
-    """Render a debate log as text for injection into subsequent rounds."""
-    if not debate:
-        return "(no prior debate)"
-    lines = ["## Prior debate\n"]
-    for entry in debate:
-        lines.append(f"### Round {entry['round']} — {entry['agent']}")
-        lines.append(entry["content"])
-        lines.append("")
+        inp = t["input"]
+        lines.append(f"*Shape: {summarize(inp)}*\n")
     return "\n".join(lines)
 
 
@@ -137,16 +125,16 @@ def _print_prompt(agent_id: str, system: str, user: str, model: str) -> None:
         from rich.panel import Panel
         from rich.text import Text
         c = Console()
-        sys_preview = system[:600] + ("…" if len(system) > 600 else "")
-        usr_preview = user[:1200] + ("…" if len(user) > 1200 else "")
+        sys_preview = system[:600] + ("..." if len(system) > 600 else "")
+        usr_preview = user[:1200] + ("..." if len(user) > 1200 else "")
         c.print(Panel(
             Text(sys_preview, style="dim"),
-            title=f"[bold magenta]{agent_id} — system prompt[/bold magenta]  [dim]{model}[/dim]",
+            title=f"[bold magenta]{agent_id} -- system prompt[/bold magenta]  [dim]{model}[/dim]",
             border_style="magenta",
         ))
         c.print(Panel(
             Text(usr_preview),
-            title=f"[bold magenta]{agent_id} — user message[/bold magenta]",
+            title=f"[bold magenta]{agent_id} -- user message[/bold magenta]",
             border_style="magenta",
         ))
     except ImportError:
@@ -156,7 +144,44 @@ def _print_prompt(agent_id: str, system: str, user: str, model: str) -> None:
 
 
 # ---------------------------------------------------------------------------
-# Round 1 — Solver initial proposals (parallel)
+# Solver response parsing (text-only — no grid extraction)
+# ---------------------------------------------------------------------------
+
+def extract_solver_hypothesis(text: str) -> dict:
+    """
+    Extract hypothesis fields from a solver's text-only response.
+    Returns dict with: rule, confidence, reasoning, suggested_tools, suggested_steps, category.
+    """
+    block_re = re.compile(r"```(?:json)?\s*(.*?)\s*```", re.DOTALL | re.IGNORECASE)
+    result = {
+        "rule": "",
+        "confidence": "medium",
+        "reasoning": "",
+        "suggested_tools": [],
+        "suggested_steps": [],
+        "category": "",
+    }
+    for raw in block_re.findall(text):
+        try:
+            obj = json.loads(raw)
+            if isinstance(obj, dict) and "rule" in obj:
+                result["rule"] = obj.get("rule", "")
+                result["confidence"] = obj.get("confidence", "medium")
+                result["reasoning"] = obj.get("reasoning", "")
+                result["suggested_tools"] = obj.get("suggested_tools", [])
+                result["suggested_steps"] = obj.get("suggested_steps", [])
+                result["category"] = obj.get("category", "")
+                break
+        except (json.JSONDecodeError, Exception):
+            continue
+    # Fallback: use entire response as rule if no JSON found
+    if not result["rule"]:
+        result["rule"] = text[:500]
+    return result
+
+
+# ---------------------------------------------------------------------------
+# Round 1 — Solver initial hypotheses (parallel, text-only)
 # ---------------------------------------------------------------------------
 
 async def run_solvers_round1(
@@ -164,131 +189,28 @@ async def run_solvers_round1(
     prior_knowledge: str = "",
     human_hypothesis: str = "",
 ) -> list[SolverEntry]:
-    """Run all three solvers in parallel for Round 1."""
+    """Run all three solvers in parallel for Round 1 (text-only hypotheses)."""
     task_text = format_task_for_prompt(task)
     knowledge_section = (
         f"\n## Prior Knowledge\n{prior_knowledge}\n" if prior_knowledge.strip() else ""
     )
     human_section = (
         f"\n## Human Hypothesis\n{human_hypothesis}\n"
-        "(A human member of the ensemble has offered this observation — "
+        "(A human member of the ensemble has offered this observation -- "
         "consider it, but form your own independent analysis.)\n"
         if human_hypothesis.strip() else ""
     )
-    user_msg = f"{knowledge_section}{human_section}\n{task_text}\n\nPlease propose your solution."
-
-    async def run_one(agent_id: str, round_num: int) -> SolverEntry:
-        text, ms = await call_agent(agent_id, user_msg)
-        grid, rule, confidence = extract_solver_fields(text)
-        return SolverEntry(
-            agent=agent_id,
-            round=round_num,
-            rule=rule,
-            confidence=confidence,
-            grid=grid,
-            raw_response=text,
-            duration_ms=ms,
-        )
-
-    results = await asyncio.gather(
-        run_one("SOLVER-SPATIAL", 1),
-        run_one("SOLVER-PROCEDURAL", 1),
-        run_one("SOLVER-ANALOGICAL", 1),
-    )
-    return list(results)
-
-
-# ---------------------------------------------------------------------------
-# Round 2 — CRITIC verification
-# ---------------------------------------------------------------------------
-
-async def run_critic(
-    task: dict,
-    solver_entries: list[SolverEntry],
-) -> CriticVerdict:
-    """Ask the CRITIC to evaluate each solver's proposal against all demo pairs."""
-    task_text = format_task_for_prompt(task)
-
-    proposals = []
-    for e in solver_entries:
-        grid_str = grid_to_str(e.grid) if e.grid else "(no grid produced)"
-        proposals.append(
-            f"### {e.agent} (confidence: {e.confidence})\n"
-            f"Rule: {e.rule}\n"
-            f"Proposed output:\n{grid_str}"
-        )
-
-    user_msg = (
-        f"{task_text}\n\n"
-        "## Solver proposals\n\n"
-        + "\n\n".join(proposals)
-        + "\n\nPlease evaluate each proposal against every demo pair."
-    )
-
-    text, ms = await call_agent("CRITIC", user_msg)
-    verdicts = extract_critic_verdicts(text)
-
-    return CriticVerdict(
-        round=2,
-        verdicts=verdicts,
-        notes=text[:500],
-        raw_response=text,
-        duration_ms=ms,
-    )
-
-
-# ---------------------------------------------------------------------------
-# Round 3 — Solver revisions (parallel)
-# ---------------------------------------------------------------------------
-
-async def run_solvers_round3(
-    task: dict,
-    r1_entries: list[SolverEntry],
-    critic_verdict: CriticVerdict,
-    prior_knowledge: str = "",
-    human_insight: str = "",
-) -> list[SolverEntry]:
-    """Run all three solvers in parallel for Round 3, with CRITIC feedback."""
-    task_text = format_task_for_prompt(task)
-
-    # Build the shared context (seen by all solvers)
-    peer_proposals = []
-    for e in r1_entries:
-        grid_str = grid_to_str(e.grid) if e.grid else "(no grid)"
-        peer_proposals.append(
-            f"**{e.agent}** (Round 1, {e.confidence} confidence)\n"
-            f"Rule: {e.rule}\nGrid:\n{grid_str}"
-        )
-
-    critic_block = (
-        "## CRITIC feedback\n" + critic_verdict.raw_response[:1500]
-    )
-
-    knowledge_section = (
-        f"\n## Prior Knowledge\n{prior_knowledge}\n" if prior_knowledge.strip() else ""
-    )
-    human_section = (
-        f"\n## Human Insight\n{human_insight}\n" if human_insight.strip() else ""
-    )
-
-    shared_context = (
-        f"{knowledge_section}{human_section}"
-        f"{task_text}\n\n"
-        "## Round 1 proposals from all solvers\n\n"
-        + "\n\n".join(peer_proposals)
-        + f"\n\n{critic_block}\n\n"
-        "Please revise your solution based on the CRITIC's feedback and your peers' proposals."
-    )
+    user_msg = f"{knowledge_section}{human_section}\n{task_text}\n\nPlease analyze this task and propose your transformation rule."
 
     async def run_one(agent_id: str) -> SolverEntry:
-        text, ms = await call_agent(agent_id, shared_context)
-        grid, rule, confidence = extract_solver_fields(text)
+        text, ms = await call_agent(agent_id, user_msg)
+        hyp = extract_solver_hypothesis(text)
         return SolverEntry(
             agent=agent_id,
-            round=3,
-            rule=rule,
-            confidence=confidence,
-            grid=grid,
+            round=1,
+            rule=hyp["rule"],
+            confidence=hyp["confidence"],
+            grid=None,  # text-only — no grid
             raw_response=text,
             duration_ms=ms,
         )
@@ -302,30 +224,29 @@ async def run_solvers_round3(
 
 
 # ---------------------------------------------------------------------------
-# Round 4 — MEDIATOR final decision
+# Round 2 — MEDIATOR synthesizes pseudo-code
 # ---------------------------------------------------------------------------
 
-async def run_mediator(
+async def run_mediator_synthesize(
     task: dict,
-    r1_entries: list[SolverEntry],
-    critic_verdict: CriticVerdict,
-    r3_entries: list[SolverEntry],
+    solver_entries: list[SolverEntry],
     prior_knowledge: str = "",
-    converged_early: bool = False,
     human_insight: str = "",
     rule_section: str = "",
-) -> MediatorDecision:
-    """Ask MEDIATOR to pick the best answer, extract knowledge, and update rules."""
+) -> tuple[str, list[dict], int]:
+    """
+    Ask MEDIATOR to synthesize solver hypotheses into pseudo-code.
+    Returns (raw_response, pseudocode_steps, duration_ms).
+    """
     task_text = format_task_for_prompt(task)
 
-    def fmt_entries(entries: list[SolverEntry], label: str) -> str:
-        parts = [f"## {label}"]
-        for e in entries:
-            grid_str = grid_to_str(e.grid) if e.grid else "(none)"
-            parts.append(
-                f"### {e.agent} ({e.confidence})\nRule: {e.rule}\nGrid:\n{grid_str}"
-            )
-        return "\n".join(parts)
+    proposals = []
+    for e in solver_entries:
+        proposals.append(
+            f"### {e.agent} (confidence: {e.confidence})\n"
+            f"Rule: {e.rule}\n"
+            f"Full reasoning:\n{e.raw_response[:1500]}"
+        )
 
     knowledge_section = (
         f"\n## Applicable Rules\n{prior_knowledge}\n" if prior_knowledge.strip() else ""
@@ -333,32 +254,70 @@ async def run_mediator(
     human_section = (
         f"\n## Human Insight\n{human_insight}\n" if human_insight.strip() else ""
     )
-    convergence_note = (
-        "\n**Note:** All solvers converged in Round 1 and CRITIC confirmed. "
-        "Round 3 was skipped.\n"
-        if converged_early else ""
-    )
     rule_mgmt_section = f"\n{rule_section}\n" if rule_section.strip() else ""
 
     user_msg = (
         f"{knowledge_section}{human_section}"
         f"{task_text}\n\n"
-        f"{convergence_note}"
-        f"{fmt_entries(r1_entries, 'Round 1 proposals')}\n\n"
-        f"## CRITIC verdict (Round 2)\n{critic_verdict.raw_response[:1500]}\n\n"
-        + (f"{fmt_entries(r3_entries, 'Round 3 revised proposals')}\n\n" if r3_entries else "")
-        + "Please produce the final answer and extract knowledge for future tasks."
+        "## Solver Hypotheses\n\n"
+        + "\n\n".join(proposals)
+        + "\n\nPlease synthesize these hypotheses into a pseudo-code sequence of tool calls "
+        "that the EXECUTOR can run against the demo pairs."
         + rule_mgmt_section
     )
 
     text, ms = await call_agent("MEDIATOR", user_msg)
-    grid = extract_json_grid(text)
 
-    return MediatorDecision(
-        round=4 if not converged_early else 3,
-        answer=grid,
-        rationale=text[:800],
-        converged=converged_early,
-        raw_response=text,
-        duration_ms=ms,
+    # Parse pseudo-code from response
+    from executor import parse_pseudocode
+    steps = parse_pseudocode(text)
+
+    return text, steps, ms
+
+
+# ---------------------------------------------------------------------------
+# Round 3+ — MEDIATOR revises pseudo-code after execution failure
+# ---------------------------------------------------------------------------
+
+async def run_mediator_revise(
+    task: dict,
+    solver_entries: list[SolverEntry],
+    previous_pseudocode: list[dict],
+    execution_trace: str,
+    human_insight: str = "",
+) -> tuple[str, list[dict], int]:
+    """
+    Ask MEDIATOR to revise pseudo-code based on execution failure.
+    Returns (raw_response, revised_steps, duration_ms).
+    """
+    task_text = format_task_for_prompt(task)
+
+    proposals = []
+    for e in solver_entries:
+        proposals.append(f"### {e.agent}: {e.rule[:200]}")
+
+    prev_code = json.dumps(previous_pseudocode, indent=2)
+
+    user_msg = (
+        f"{task_text}\n\n"
+        "## Solver Hypotheses (for reference)\n"
+        + "\n".join(proposals)
+        + f"\n\n## Previous pseudo-code (FAILED)\n```json\n{prev_code}\n```\n\n"
+        f"## Execution Trace\n{execution_trace}\n\n"
     )
+
+    if human_insight:
+        user_msg += f"## Human Insight\n{human_insight}\n\n"
+
+    user_msg += (
+        "The pseudo-code failed on one or more demo pairs. "
+        "Please analyze the execution trace, identify what went wrong, "
+        "and produce a REVISED pseudo-code sequence."
+    )
+
+    text, ms = await call_agent("MEDIATOR", user_msg)
+
+    from executor import parse_pseudocode
+    steps = parse_pseudocode(text)
+
+    return text, steps, ms

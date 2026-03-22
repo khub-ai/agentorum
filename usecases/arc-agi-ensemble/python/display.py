@@ -21,7 +21,7 @@ from rich.text import Text
 from rich import box
 
 from grid_tools import Grid, cell_accuracy
-from metadata import SolverEntry, CriticVerdict, MediatorDecision, TaskMetadata
+from metadata import SolverEntry, MediatorDecision, TaskMetadata
 from rules import RuleMatch, RuleEngine
 
 console = Console()
@@ -155,126 +155,143 @@ def show_puzzle(task: dict, task_id: str,
 
 
 # ---------------------------------------------------------------------------
-# Checkpoint 1 — Round 1 proposals
+# Checkpoint 1 — Round 1 text-only hypotheses
 # ---------------------------------------------------------------------------
 
-def show_r1_proposals(entries: list[SolverEntry]) -> None:
-    """Display Round 1 solver proposals side by side."""
-    console.print(Rule("[bold blue]Round 1 — Solver Proposals[/bold blue]", style="blue"))
+def show_r1_hypotheses(entries: list[SolverEntry]) -> None:
+    """Display Round 1 solver hypotheses (text-only, no grids)."""
+    console.print(Rule("[bold blue]Round 1 -- Solver Hypotheses[/bold blue]", style="blue"))
     panels = []
     for e in entries:
-        cs = _CONF_STYLE.get(e.confidence, "")
-        rule_text = e.rule[:140] + ("…" if len(e.rule) > 140 else "")
+        cs = _CONF_STYLE.get(e.confidence, "dim")
+        short = e.agent.replace("SOLVER-", "")
+        rule_text = e.rule[:300] + ("..." if len(e.rule) > 300 else "")
         body = Text()
-        body.append_text(_render_grid(e.grid))
-        body.append(f"\n\n{rule_text}", style="dim")
+        body.append(rule_text)
         panels.append(Panel(
             body,
-            title=f"{e.agent.replace('SOLVER-', '')}  [{cs}]{e.confidence}[/{cs}]",
+            title=f"[bold]{short}[/bold]  [{cs}]{e.confidence}[/{cs}]",
             border_style="blue",
             expand=False,
+            width=40,
         ))
     console.print(Columns(panels, padding=(0, 2)))
     console.print()
 
 
+# Keep old function name as alias for backwards compatibility
+show_r1_proposals = show_r1_hypotheses
+
+
 # ---------------------------------------------------------------------------
-# Checkpoint 2 — CRITIC verdicts
+# Checkpoint 2 — Pseudo-code from MEDIATOR
 # ---------------------------------------------------------------------------
 
-def show_critic_results(entries: list[SolverEntry], critic: CriticVerdict,
-                        expected: Optional[Grid] = None) -> None:
-    """Compact verdict table with optional expected-output reference."""
-    console.print(Rule("[bold yellow]Round 2 — CRITIC Verdicts[/bold yellow]", style="yellow"))
+def show_pseudocode(steps: list[dict], mediator_text: str = "",
+                    revision: int = 0) -> None:
+    """Display the MEDIATOR's pseudo-code steps."""
+    label = "Round 2 -- Pseudo-code" if not revision else f"Revision {revision} -- Pseudo-code"
+    console.print(Rule(f"[bold magenta]{label}[/bold magenta]", style="magenta"))
 
-    t = Table(show_header=True, box=box.SIMPLE, header_style="bold yellow")
-    t.add_column("Agent", style="bold")
-    t.add_column("Verdict", justify="center")
-    t.add_column("Confidence", justify="center")
-    t.add_column("Rule (R1)", style="dim", no_wrap=False, max_width=70)
+    if not steps:
+        console.print(Panel(
+            "[yellow]MEDIATOR produced no parseable pseudo-code steps.[/yellow]\n"
+            + Text(mediator_text[:500], style="dim").plain,
+            title="[yellow]Warning[/yellow]",
+            border_style="yellow",
+        ))
+        return
 
-    for e in entries:
-        verdict = critic.verdicts.get(e.agent, "?")
-        vs = _VERDICT_STYLE.get(verdict, "dim")
-        cs = _CONF_STYLE.get(e.confidence, "dim")
+    t = Table(show_header=True, box=box.SIMPLE, header_style="bold magenta")
+    t.add_column("Step", justify="center", style="bold")
+    t.add_column("Tool", style="cyan")
+    t.add_column("Arguments", no_wrap=False, max_width=60)
+
+    for s in steps:
+        args_str = ", ".join(f"{k}={v}" for k, v in s.get("args", {}).items())
         t.add_row(
-            e.agent.replace("SOLVER-", ""),
+            str(s.get("step", "?")),
+            s.get("tool", "?"),
+            args_str or "(none)",
+        )
+    console.print(t)
+    console.print()
+
+
+# ---------------------------------------------------------------------------
+# Checkpoint 3 — Execution results
+# ---------------------------------------------------------------------------
+
+def show_execution_result(exec_result, expected: Optional[Grid] = None) -> None:
+    """Display EXECUTOR results: per-demo pass/fail with grids."""
+    from executor import ExecutionResult
+    er: ExecutionResult = exec_result
+
+    all_pass = er.all_pass
+    color = "green" if all_pass else "red"
+    status = "ALL PASS" if all_pass else "FAILED"
+    console.print(Rule(
+        f"[bold {color}]Round 3 -- EXECUTOR: {status}[/bold {color}]",
+        style=color,
+    ))
+
+    # Per-demo results table
+    t = Table(show_header=True, box=box.SIMPLE, header_style="bold")
+    t.add_column("Demo", justify="center")
+    t.add_column("Result", justify="center")
+    t.add_column("Accuracy", justify="center")
+    t.add_column("Diff cells", justify="center")
+    t.add_column("Steps run", justify="center")
+
+    for dr in er.demos:
+        vs = "bold green" if dr.passed else "bold red"
+        verdict = "PASS" if dr.passed else "FAIL"
+        t.add_row(
+            str(dr.demo_index + 1),
             Text(verdict, style=vs),
-            Text(e.confidence, style=cs),
-            e.rule[:100] + ("..." if len(e.rule) > 100 else ""),
+            f"{dr.cell_acc*100:.0f}%",
+            str(len(dr.diff)) if not dr.passed else "-",
+            str(len(dr.steps)),
         )
     console.print(t)
 
-    row = []
-    if critic.notes:
-        row.append(Panel(
-            Text(critic.notes[:400], style="dim"),
-            title="CRITIC notes",
-            border_style="yellow",
-            padding=(0, 1),
-            expand=False,
-        ))
-    if expected is not None:
-        row.append(_grid_panel(expected, title="[green]CORRECT OUTPUT[/green]",
-                               border="green"))
-    if row:
-        console.print(Columns(row, padding=(0, 2)))
-    console.print()
+    # Show failing demo grids
+    for dr in er.demos:
+        if not dr.passed:
+            panels = [
+                _grid_panel(dr.actual_output,
+                            title=f"[red]Demo {dr.demo_index+1} ACTUAL[/red]",
+                            border="red",
+                            footer=f"{dr.cell_acc*100:.0f}% acc"),
+                _grid_panel(dr.expected_output,
+                            title=f"[green]Demo {dr.demo_index+1} EXPECTED[/green]",
+                            border="green"),
+            ]
+            console.print(Columns(panels, padding=(0, 2)))
 
+            # Show cell diffs
+            if dr.diff and len(dr.diff) <= 15:
+                diff_str = "  ".join(f"({r},{c}): {got}->{want}" for r, c, got, want in dr.diff)
+                console.print(f"  [yellow]Diffs: {diff_str}[/yellow]")
 
-# ---------------------------------------------------------------------------
-# Checkpoint 3 — Round 3 revised proposals
-# ---------------------------------------------------------------------------
+    # Show test output if all passed
+    if er.all_pass and er.test_output:
+        panels = [
+            _grid_panel(er.test_output,
+                        title="[cyan]TEST OUTPUT[/cyan]",
+                        border="cyan"),
+        ]
+        if expected is not None:
+            from grid_tools import cell_accuracy as ca
+            acc = ca(er.test_output, expected)
+            correct = acc == 1.0
+            ec = "green" if correct else "yellow"
+            panels.append(_grid_panel(expected,
+                                      title=f"[{ec}]EXPECTED[/{ec}]",
+                                      border=ec,
+                                      footer=f"{acc*100:.0f}% acc"))
+        console.print(Columns(panels, padding=(0, 2)))
 
-def show_r3_proposals(
-    r1: list[SolverEntry],
-    r3: list[SolverEntry],
-    critic: Optional[CriticVerdict],
-    expected: Optional[Grid] = None,
-) -> None:
-    """
-    Show R3 revised grids only — R1 grids were already shown.
-    Flags REVISED / UNCHANGED, and shows the correct output for comparison.
-    """
-    from grid_tools import grids_equal, cell_accuracy
-
-    console.print(Rule("[bold blue]Round 3 — Revised Proposals[/bold blue]", style="blue"))
-    r1_map = {e.agent: e for e in r1}
-    panels = []
-
-    for e3 in r3:
-        e1 = r1_map.get(e3.agent)
-        verdict = critic.verdicts.get(e3.agent, "?") if critic else "?"
-        vs = _VERDICT_STYLE.get(verdict, "")
-        cs = _CONF_STYLE.get(e3.confidence, "")
-        short = e3.agent.replace("SOLVER-", "")
-
-        changed = not (e1 and e1.grid and e3.grid and grids_equal(e1.grid, e3.grid))
-        delta = "[green]REVISED[/green]" if changed else "[dim]UNCHANGED[/dim]"
-        rule_text = e3.rule[:100] + ("…" if len(e3.rule) > 100 else "")
-
-        acc_str = ""
-        if expected and e3.grid:
-            acc = cell_accuracy(e3.grid, expected)
-            acc_str = f"  {acc*100:.0f}% acc"
-
-        body = Text()
-        body.append_text(_render_grid(e3.grid))
-        body.append(f"\n{rule_text}", style="dim")
-
-        panels.append(Panel(
-            body,
-            title=f"{short}  [{cs}]{e3.confidence}[/{cs}]  {delta}{acc_str}",
-            subtitle=f"R1 was [{vs}]{verdict}[/{vs}]",
-            border_style="blue" if changed else "dim",
-            expand=False,
-        ))
-
-    if expected is not None:
-        panels.append(_grid_panel(expected, title="[green]CORRECT OUTPUT[/green]",
-                                  border="green"))
-
-    console.print(Columns(panels, padding=(0, 2)))
     console.print()
 
 
@@ -343,26 +360,33 @@ def human_hypothesis_checkpoint(task_id: str) -> str:
     )
 
 
-def human_post_critic_checkpoint() -> str:
-    """Ask for an insight to inject into Round 3 solver revisions."""
+def human_post_hypotheses_checkpoint() -> str:
+    """Ask for an insight after seeing solver hypotheses, before MEDIATOR synthesizes."""
     return human_checkpoint(
         prompt=(
-            "CRITIC has evaluated the solvers.\n"
-            "  Do you see what they are missing?\n"
-            "  Your insight will be injected into Round 3 for all solvers to consider."
+            "Solvers have proposed their hypotheses.\n"
+            "  Do you see what they are missing? Which hypothesis looks most promising?\n"
+            "  Your insight will guide the MEDIATOR's pseudo-code synthesis."
         ),
     )
 
+
+def human_revision_checkpoint(attempt: int) -> str:
+    """Ask for insight before MEDIATOR revises failed pseudo-code."""
+    return human_checkpoint(
+        prompt=(
+            f"The pseudo-code FAILED on demo verification (attempt {attempt}).\n"
+            "  Look at the execution trace above. Can you spot the problem?\n"
+            "  Your insight will help the MEDIATOR revise the pseudo-code."
+        ),
+    )
+
+
+# Keep old names for backwards compatibility
+human_post_critic_checkpoint = human_post_hypotheses_checkpoint
 
 def human_pre_mediator_checkpoint() -> str:
-    """Ask for a final insight before the MEDIATOR decides."""
-    return human_checkpoint(
-        prompt=(
-            "Solvers have submitted their revised proposals.\n"
-            "  Any final observation or preference before the MEDIATOR decides?\n"
-            "  Your input will be included in the MEDIATOR's context."
-        ),
-    )
+    return human_post_hypotheses_checkpoint()
 
 
 # ---------------------------------------------------------------------------
