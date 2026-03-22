@@ -41,7 +41,6 @@ function connect() {
         serverConfig   = msg.config || {};
         buildParticipantMap(serverConfig.participants || []);
         allEntries     = msg.entries;
-        resolveEntryTimes(allEntries);
         shownCount     = Math.min(20, allEntries.length);
         applyScores(msg.scores || {});
         // Restore filter state from localStorage
@@ -61,7 +60,6 @@ function connect() {
       case 'entries_added':
         msg.entries.forEach(e => {
           allEntries.push(e);
-          resolveEntryTimes(allEntries);
           newSinceLoad.add(e.id);
           // If this participant had a pending nudge, clear it — they responded
           if (nudgeMap[e.author]) {
@@ -181,83 +179,26 @@ function highlight(text, query) {
 // Entry rendering
 // ---------------------------------------------------------------------------
 // ---------------------------------------------------------------------------
-// Timestamp resolution
+// Timestamp parsing
 //
-// The chatlog mixes UTC timestamps (server-generated via toISOString) and
-// local timestamps (written by interactive agents).  We cannot distinguish
-// them from the string alone.  Strategy:
-//
-//   1. Parse each timestamp as BOTH local and UTC.
-//   2. Discard any interpretation that lands in the future.
-//   3. Pick the interpretation closest to "now" (least stale).
-//   4. Enforce monotonicity: each entry must be >= the previous one,
-//      because chatlog append order IS chronological order.
-//
-// The result is cached in _resolvedTimes (entry.id → ms).
+// All chatlog timestamps are now in local time (server writes local,
+// interactive agents write local).  Simply parse as local.
 // ---------------------------------------------------------------------------
-const _resolvedTimes = {};
-
-function resolveEntryTimes(entries) {
-  const now = Date.now();
-  let prevMs = 0;
-  for (const entry of entries) {
-    if (_resolvedTimes[entry.id]) {
-      prevMs = Math.max(prevMs, _resolvedTimes[entry.id]);
-      continue;
-    }
-    const iso = entry.timestamp.replace(' ', 'T');
-    const asLocal = new Date(iso).getTime();
-    const asUtc   = new Date(iso + 'Z').getTime();
-
-    // Collect valid (non-NaN) interpretations — include future ones too
-    const all = [];
-    if (!isNaN(asLocal)) all.push(asLocal);
-    if (!isNaN(asUtc))   all.push(asUtc);
-    if (all.length === 0) { _resolvedTimes[entry.id] = now; prevMs = now; continue; }
-
-    // Prefer past interpretations; if none, use the closest future one
-    const past = all.filter(t => t <= now);
-    let best;
-    if (past.length > 0) {
-      // Pick the one closest to now (most plausible)
-      best = past.reduce((a, b) => (now - a) < (now - b) ? a : b);
-    } else {
-      // All in future — pick closest to now (least far ahead)
-      best = all.reduce((a, b) => (a - now) < (b - now) ? a : b);
-    }
-    // Enforce monotonicity — entry can't be older than the one before it
-    best = Math.max(best, prevMs);
-    _resolvedTimes[entry.id] = best;
-    prevMs = best;
-  }
+function parseEntryTime(timestamp) {
+  const ms = new Date(timestamp.replace(' ', 'T')).getTime();
+  return isNaN(ms) ? Date.now() : ms;
 }
 
-function parseEntryTime(timestamp, entryId) {
-  if (entryId && _resolvedTimes[entryId]) return _resolvedTimes[entryId];
-  // Fallback for calls without an entryId (e.g. agent card "last response")
-  const iso = timestamp.replace(' ', 'T');
-  const asLocal = new Date(iso).getTime();
-  const asUtc   = new Date(iso + 'Z').getTime();
-  const now = Date.now();
-  const all = [];
-  if (!isNaN(asLocal)) all.push(asLocal);
-  if (!isNaN(asUtc))   all.push(asUtc);
-  if (all.length === 0) return now;
-  const past = all.filter(t => t <= now);
-  if (past.length > 0) return past.reduce((a, b) => (now - a) < (now - b) ? a : b);
-  return all.reduce((a, b) => (a - now) < (b - now) ? a : b);
-}
-
-function ageClass(timestamp, entryId) {
-  const diff = Math.max(0, (Date.now() - parseEntryTime(timestamp, entryId)) / 1000);
+function ageClass(timestamp) {
+  const diff = Math.max(0, (Date.now() - parseEntryTime(timestamp)) / 1000);
   if (diff < 45)   return 'age-fresh';
   if (diff < 300)  return 'age-new';
   if (diff < 3600) return 'age-recent';
   return '';
 }
 
-function formatLocalTime(timestamp, entryId) {
-  const ms = parseEntryTime(timestamp, entryId);
+function formatLocalTime(timestamp) {
+  const ms = parseEntryTime(timestamp);
   const d = new Date(ms);
   return d.toLocaleString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit', second: '2-digit' });
 }
@@ -277,8 +218,8 @@ function formatTimestamp(timestamp) {
   return `${months[parseInt(mo)]} ${parseInt(dy)}, ${hh}:${mm}`;
 }
 
-function timeAgo(timestamp, entryId) {
-  const ms   = parseEntryTime(timestamp, entryId);
+function timeAgo(timestamp) {
+  const ms   = parseEntryTime(timestamp);
   const diff = Math.floor((Date.now() - ms) / 1000);
   if (diff < 0)     return 'just now';   // future timestamp — display gracefully
   if (diff < 60)    return `${diff}s ago`;
@@ -299,7 +240,7 @@ function makeCard(entry) {
   const color     = participantColor(entry.author);
   const name      = participantName(entry.author);
   const role      = participantRole(entry.author);
-  const age       = ageClass(entry.timestamp, entry.id);
+  const age       = ageClass(entry.timestamp);
 
   const card = document.createElement('div');
   card.className = `entry-card ${age} ${collapsed ? 'collapsed' : 'expanded'}`;
@@ -334,7 +275,7 @@ function makeCard(entry) {
       ${role ? `<span class="entry-role">${role}</span>` : ''}
       ${metaBadges}
       ${ratingPips}
-      <a class="entry-ts" href="#entry-${entry.id}" title="${timeAgo(entry.timestamp, entry.id)}" onclick="event.stopPropagation();history.replaceState(null,'','#entry-${entry.id}')">${formatTimestamp(entry.timestamp)}</a>
+      <a class="entry-ts" href="#entry-${entry.id}" title="${formatTimestamp(entry.timestamp)}" onclick="event.stopPropagation();history.replaceState(null,'','#entry-${entry.id}')">${timeAgo(entry.timestamp)}</a>
       <button class="btn-copy-entry" data-body="${entry.body.replace(/"/g,'&quot;')}" title="Copy to clipboard">📋</button>
       ${!isRatingEntry ? `<button class="btn-rate-entry" data-id="${entry.id}" title="Rate this entry">★</button>` : ''}
       <button class="btn-delete-entry" data-id="${entry.id}" title="Delete this entry">🗑</button>
@@ -418,12 +359,11 @@ setInterval(() => refreshAgeClasses(), 20_000);
 function refreshAgeClasses() {
   document.querySelectorAll('.entry-card').forEach(card => {
     const ts = card.dataset.ts;
-    const id = card.dataset.id;
     card.classList.remove('age-fresh','age-new','age-recent');
-    const cls = ageClass(ts, id);
+    const cls = ageClass(ts);
     if (cls) card.classList.add(cls);
     const tsEl = card.querySelector('.entry-ts');
-    if (tsEl) tsEl.title = timeAgo(ts, id);
+    if (tsEl) tsEl.textContent = timeAgo(ts);
   });
 }
 
