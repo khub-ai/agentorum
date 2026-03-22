@@ -1219,7 +1219,7 @@ async function handleRequest(req, res) {
           initCommand: `Read this file and confirm your role: ${rulesFile}`
         };
       });
-    return jsonResp(res, { active: true, sessionDir, token: activeSessionToken, interactiveParticipants });
+    return jsonResp(res, { active: true, sessionDir, token: activeSessionToken, projectId: activeProjectId, sessionId: activeSessionId, interactiveParticipants });
   }
 
   // --- /api/media/:filename — serve media files from session media folder ---

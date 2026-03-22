@@ -19,6 +19,7 @@ let serverConfig    = {};   // full config from server
 let activeLogAgent  = null; // which agent's log drawer is open
 let pendingRateEntry = null; // entry currently being rated by human
 let _sessionToken   = null; // session token, used to persist init-done state
+let _initDoneKey    = null; // localStorage key for "init done" flag (projectId:sessionId)
 let searchQuery     = '';
 let filterAuthors   = new Set(); // ids that are HIDDEN (unchecked)
 let filterFrom      = '';
@@ -1010,8 +1011,8 @@ function expandInitAgentsPanel() {
 document.getElementById('btn-init-done').addEventListener('click', () => {
   closeInitModal();
   collapseInitAgentsPanel();
-  if (_sessionToken) {
-    localStorage.setItem(`agentorum_init_done_${_sessionToken}`, '1');
+  if (_initDoneKey) {
+    localStorage.setItem(_initDoneKey, '1');
   }
 });
 
@@ -1054,6 +1055,10 @@ async function renderInitAgentsPanel(autoShow = false) {
 
   _sessionToken   = data.token;
   _initAgentsData = data.interactiveParticipants;
+  // Build a stable localStorage key from project+session IDs (token may be null)
+  _initDoneKey    = data.projectId && data.sessionId
+    ? `agentorum_init_done_${data.projectId}:${data.sessionId}`
+    : (data.token ? `agentorum_init_done_${data.token}` : null);
 
   // Sidebar compact cards (copy buttons only, no modal chrome)
   section.style.display = 'block';
@@ -1079,8 +1084,8 @@ async function renderInitAgentsPanel(autoShow = false) {
 
   // Auto-show modal on session load — but only once per session.
   // After the user clicks "Done", we store a flag in localStorage keyed on
-  // the session token so reloads and reconnects don't re-prompt.
-  const alreadyDone = data.token && localStorage.getItem(`agentorum_init_done_${data.token}`);
+  // project+session IDs so reloads and reconnects don't re-prompt.
+  const alreadyDone = _initDoneKey && localStorage.getItem(_initDoneKey);
   if (autoShow && !alreadyDone) openInitModal(data.interactiveParticipants);
 }
 
