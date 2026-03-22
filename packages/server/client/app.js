@@ -1054,11 +1054,16 @@ async function renderInitAgentsPanel(autoShow = false) {
   }
 
   _sessionToken   = data.token;
-  _initAgentsData = data.interactiveParticipants;
   // Build a stable localStorage key from project+session IDs (token may be null)
   _initDoneKey    = data.projectId && data.sessionId
     ? `agentorum_init_done_${data.projectId}:${data.sessionId}`
     : (data.token ? `agentorum_init_done_${data.token}` : null);
+
+  // Filter out interactive agents that have already posted to the chatlog —
+  // if an agent has entries it's already initialized and doesn't need the modal.
+  const authorSet = new Set(allEntries.map(e => e.author));
+  const uninitAgents = data.interactiveParticipants.filter(p => !authorSet.has(p.id));
+  _initAgentsData = data.interactiveParticipants;  // keep full list for re-init button
 
   // Sidebar compact cards (copy buttons only, no modal chrome)
   section.style.display = 'block';
@@ -1066,12 +1071,14 @@ async function renderInitAgentsPanel(autoShow = false) {
   container.innerHTML = '';
   data.interactiveParticipants.forEach(p => {
     const color = participantColor(p.id);
+    const initialized = authorSet.has(p.id);
     const card  = document.createElement('div');
-    card.className = 'init-agent-card';
+    card.className = 'init-agent-card' + (initialized ? ' init-agent-done' : '');
     card.innerHTML = `
       <div class="init-agent-header">
         <span class="init-agent-id" style="color:${color}">${p.id}</span>
         <span class="init-agent-label">${p.label}</span>
+        ${initialized ? '<span class="init-agent-check" title="Already initialized">✓</span>' : ''}
       </div>
       <div class="init-command-row">
         <code class="init-command">${p.initCommand}</code>
@@ -1082,11 +1089,14 @@ async function renderInitAgentsPanel(autoShow = false) {
     container.appendChild(card);
   });
 
-  // Auto-show modal on session load — but only once per session.
-  // After the user clicks "Done", we store a flag in localStorage keyed on
-  // project+session IDs so reloads and reconnects don't re-prompt.
+  // Auto-show modal ONLY if:
+  // 1. autoShow is requested (first load, not manual re-open)
+  // 2. user hasn't clicked "Done" for this session (localStorage flag)
+  // 3. at least one interactive agent hasn't posted yet
   const alreadyDone = _initDoneKey && localStorage.getItem(_initDoneKey);
-  if (autoShow && !alreadyDone) openInitModal(data.interactiveParticipants);
+  if (autoShow && !alreadyDone && uninitAgents.length > 0) {
+    openInitModal(uninitAgents);
+  }
 }
 
 // Sidebar copy buttons (delegated, catches any remaining plain .btn-copy clicks)

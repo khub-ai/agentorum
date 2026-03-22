@@ -850,6 +850,8 @@ label { display: flex; align-items: center; gap: 6px; cursor: pointer; }
 
 .init-agent-id    { font-weight: 700; font-size: 12px; }
 .init-agent-label { font-size: 11px; color: var(--text-muted); }
+.init-agent-check { font-size: 12px; color: #22c55e; margin-left: auto; }
+.init-agent-done  { opacity: 0.55; }
 
 .init-command-row {
   display: flex;
