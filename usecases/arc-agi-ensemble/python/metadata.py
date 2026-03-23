@@ -69,6 +69,16 @@ class TaskMetadata:
     total_duration_ms: int = 0
     rounds_completed: int = 0
 
+    # Leaderboard stats
+    model: str = ""
+    dataset: str = ""
+    human_hints_used: bool = False
+    tools_generated: list = field(default_factory=list)   # names of dynamically created tools
+    input_tokens: int = 0
+    output_tokens: int = 0
+    api_calls: int = 0
+    cost_usd: float = 0.0
+
     def to_dict(self) -> dict[str, Any]:
         d = asdict(self)
         # Convert grids to lists (already lists, but dataclasses may wrap them)

@@ -89,6 +89,55 @@ DEFAULT_MAX_TOKENS = 4096
 # Set to True by harness/ensemble to print prompts before each call
 SHOW_PROMPTS: bool = False
 
+# ---------------------------------------------------------------------------
+# Cost tracking
+# ---------------------------------------------------------------------------
+
+# Sonnet 4.6 pricing (USD per token)
+_PRICE_INPUT_PER_TOKEN  = 3.00  / 1_000_000
+_PRICE_OUTPUT_PER_TOKEN = 15.00 / 1_000_000
+
+
+class CostTracker:
+    """Accumulates token usage and computes USD cost for one task run."""
+
+    def __init__(self) -> None:
+        self.reset()
+
+    def reset(self) -> None:
+        self.input_tokens:  int = 0
+        self.output_tokens: int = 0
+        self.api_calls:     int = 0
+
+    def add(self, input_tokens: int, output_tokens: int) -> None:
+        self.input_tokens  += input_tokens
+        self.output_tokens += output_tokens
+        self.api_calls     += 1
+
+    def cost_usd(self) -> float:
+        return (self.input_tokens  * _PRICE_INPUT_PER_TOKEN +
+                self.output_tokens * _PRICE_OUTPUT_PER_TOKEN)
+
+    def to_dict(self) -> dict:
+        return {
+            "input_tokens":  self.input_tokens,
+            "output_tokens": self.output_tokens,
+            "api_calls":     self.api_calls,
+            "cost_usd":      round(self.cost_usd(), 6),
+        }
+
+
+# Module-level singleton — reset between tasks by the harness/ensemble
+_cost_tracker = CostTracker()
+
+
+def reset_cost_tracker() -> None:
+    _cost_tracker.reset()
+
+
+def get_cost_tracker() -> CostTracker:
+    return _cost_tracker
+
 
 async def call_agent(
     agent_id: str,
@@ -120,6 +169,9 @@ async def call_agent(
             )
             duration_ms = int((time.time() - t0) * 1000)
             text = response.content[0].text if response.content else ""
+            if response.usage:
+                _cost_tracker.add(response.usage.input_tokens,
+                                  response.usage.output_tokens)
             return text, duration_ms
         except anthropic.APIStatusError as e:
             if e.status_code == 529 and attempt < max_retries - 1:
@@ -393,6 +445,8 @@ async def run_tool_generator(tool_spec: dict) -> tuple[str, int]:
 
     duration_ms = int((time.time() - t0) * 1000)
     raw = response.content[0].text if response.content else ""
+    if response.usage:
+        _cost_tracker.add(response.usage.input_tokens, response.usage.output_tokens)
 
     # Extract code from ```python block
     match = re.search(r"```python\s*(.*?)\s*```", raw, re.DOTALL)

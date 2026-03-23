@@ -23,6 +23,7 @@ from metadata import TaskMetadata, SolverEntry, MediatorDecision, compute_outcom
 from agents import (
     run_solvers_round1, run_mediator_synthesize, run_mediator_revise,
     run_tool_generator, call_agent, format_task_for_prompt, DEFAULT_MODEL,
+    reset_cost_tracker, get_cost_tracker,
 )
 from executor import (
     run_executor, ExecutionResult, format_execution_trace, tool_signatures,
@@ -51,7 +52,8 @@ async def _generate_and_register_tools(
         code, gen_ms = await run_tool_generator(spec)
         success, error = register_dynamic_tool(name, code)
         log_fn(f"  [tool_creator] {name}: {'registered OK' if success else f'FAILED: {error}'}", force=True)
-        results.append({"spec": spec, "code": code, "success": success, "error": error, "ms": gen_ms})
+        results.append({"spec": spec, "code": code, "success": success, "error": error, "ms": gen_ms,
+                         "name": name})
         if human_in_loop:
             disp.show_tool_generation(spec, code, success, error)
     return results
@@ -88,6 +90,7 @@ async def run_ensemble(
     human_insight: str = "",
     human_revision_hint: str = "",
     verbose: bool = True,
+    dataset: str = "",
 ) -> TaskMetadata:
     """
     Run the full ensemble on a single ARC-AGI task.
@@ -96,6 +99,10 @@ async def run_ensemble(
     """
     if rule_engine is None:
         rule_engine = RuleEngine()
+
+    reset_cost_tracker()
+    _tools_generated: list[str] = []
+    _human_hints_used = bool(human_hypothesis or human_insight or human_revision_hint)
 
     test_input = task["test"][0]["input"] if task.get("test") else []
     exp_shape = (len(expected), len(expected[0])) if expected and expected[0] else None
@@ -182,7 +189,9 @@ async def run_ensemble(
     for s in pseudocode:
         log(f"    Step {s.get('step', '?')}: {s.get('tool', '?')}({s.get('args', {})})")
 
-    await _generate_and_register_tools(mediator_text, human_in_loop, log)
+    for r in await _generate_and_register_tools(mediator_text, human_in_loop, log):
+        if r["success"]:
+            _tools_generated.append(r["name"])
 
     if human_in_loop:
         disp.show_pseudocode(pseudocode, mediator_text)
@@ -221,7 +230,9 @@ async def run_ensemble(
         mediator_ms += rev_ms
         log(f"  Revised: {len(pseudocode)} steps", force=True)
 
-        await _generate_and_register_tools(mediator_text, human_in_loop, log)
+        for r in await _generate_and_register_tools(mediator_text, human_in_loop, log):
+            if r["success"]:
+                _tools_generated.append(r["name"])
 
         if human_in_loop:
             disp.show_pseudocode(pseudocode, mediator_text, revision=attempt)
@@ -249,6 +260,17 @@ async def run_ensemble(
     meta.total_duration_ms = int(time.time() * 1000) - meta.start_ms
     meta.rounds_completed = total_rounds
     compute_outcome(meta, expected)
+
+    # Leaderboard stats
+    ct = get_cost_tracker()
+    meta.model            = DEFAULT_MODEL
+    meta.dataset          = dataset
+    meta.human_hints_used = _human_hints_used
+    meta.tools_generated  = list(dict.fromkeys(_tools_generated))  # deduplicated
+    meta.input_tokens     = ct.input_tokens
+    meta.output_tokens    = ct.output_tokens
+    meta.api_calls        = ct.api_calls
+    meta.cost_usd         = round(ct.cost_usd(), 6)
 
     success = meta.correct or False
 
