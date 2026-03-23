@@ -17,6 +17,7 @@ from typing import Optional
 import anthropic
 
 from grid_tools import Grid, grid_to_str, summarize
+from typing import TYPE_CHECKING
 from metadata import SolverEntry, MediatorDecision, extract_json_grid
 
 # ---------------------------------------------------------------------------
@@ -406,10 +407,24 @@ Requirements:
 Return ONLY the function code inside a ```python block. No explanation outside the block."""
 
 
-async def run_tool_generator(tool_spec: dict) -> tuple[str, int]:
+def _format_demo_examples(task: dict, max_demos: int = 3) -> str:
+    """Format demo pairs as concrete input/output examples for the tool generator."""
+    lines = ["## Concrete examples your function MUST pass (verified by the executor):"]
+    for i, pair in enumerate(task.get("train", [])[:max_demos], 1):
+        lines.append(f"\n### Example {i}")
+        lines.append("Input grid:")
+        lines.append(grid_to_str(pair["input"]))
+        lines.append("Expected output grid:")
+        lines.append(grid_to_str(pair["output"]))
+    return "\n".join(lines)
+
+
+async def run_tool_generator(tool_spec: dict, task: dict | None = None) -> tuple[str, int]:
     """
     Ask Claude to generate Python code for a new grid transformation tool.
     Returns (python_code_str, duration_ms).
+    If task is provided, demo input/output pairs are included so the generator
+    has concrete examples to write against.
     """
     name = tool_spec.get("name", "unnamed_tool")
     system = _TOOL_GENERATOR_SYSTEM.replace("{name}", name)
@@ -418,11 +433,14 @@ async def run_tool_generator(tool_spec: dict) -> tuple[str, int]:
     behavior = tool_spec.get("behavior", "")
     description = tool_spec.get("description", "")
 
+    examples_section = f"\n\n{_format_demo_examples(task)}" if task else ""
+
     user_msg = (
         f"Tool name: `{name}`\n"
         f"Description: {description}\n"
         f"Arguments:\n{args_desc}\n\n"
-        f"Behavior:\n{behavior}\n\n"
+        f"Behavior:\n{behavior}"
+        f"{examples_section}\n\n"
         f"Write `def {name}(grid, **kwargs)` implementing the above."
     )
 
@@ -449,6 +467,78 @@ async def run_tool_generator(tool_spec: dict) -> tuple[str, int]:
         _cost_tracker.add(response.usage.input_tokens, response.usage.output_tokens)
 
     # Extract code from ```python block
+    match = re.search(r"```python\s*(.*?)\s*```", raw, re.DOTALL)
+    code = match.group(1).strip() if match else raw.strip()
+
+    return code, duration_ms
+
+
+_TOOL_FIX_SYSTEM = """You are fixing a Python grid transformation function that is producing wrong output.
+
+You will be given:
+1. The original behavior specification
+2. The current (buggy) function code
+3. An execution trace showing exactly which cells are wrong
+
+Your job: return a corrected version of the function.
+
+Requirements (same as before):
+- Signature: def {name}(grid, **kwargs) -> list
+- Return a NEW 2D list of ints — never modify in-place
+- Deterministic, handles edge cases gracefully
+
+Return ONLY the corrected function code inside a ```python block. No explanation outside the block."""
+
+
+async def run_tool_generator_fix(
+    tool_spec: dict,
+    buggy_code: str,
+    trace: str,
+    task: dict | None = None,
+) -> tuple[str, int]:
+    """
+    Ask Claude to fix a previously generated tool that failed verification.
+    Returns (corrected_python_code, duration_ms).
+    """
+    name = tool_spec.get("name", "unnamed_tool")
+    system = _TOOL_FIX_SYSTEM.replace("{name}", name)
+
+    behavior = tool_spec.get("behavior", "")
+    description = tool_spec.get("description", "")
+    examples_section = f"\n\n{_format_demo_examples(task)}" if task else ""
+
+    user_msg = (
+        f"Tool name: `{name}`\n"
+        f"Description: {description}\n\n"
+        f"Original behavior spec:\n{behavior}"
+        f"{examples_section}\n\n"
+        f"## Buggy code\n```python\n{buggy_code}\n```\n\n"
+        f"## Execution trace (showing what went wrong)\n{trace}\n\n"
+        f"Fix `def {name}(grid, **kwargs)` so it passes all examples above."
+    )
+
+    client = get_client()
+    t0 = time.time()
+    for attempt in range(5):
+        try:
+            response = await client.messages.create(
+                model=DEFAULT_MODEL,
+                max_tokens=2048,
+                system=system,
+                messages=[{"role": "user", "content": user_msg}],
+            )
+            break
+        except anthropic.APIStatusError as e:
+            if e.status_code == 529 and attempt < 4:
+                await asyncio.sleep(2 ** attempt)
+            else:
+                raise
+
+    duration_ms = int((time.time() - t0) * 1000)
+    raw = response.content[0].text if response.content else ""
+    if response.usage:
+        _cost_tracker.add(response.usage.input_tokens, response.usage.output_tokens)
+
     match = re.search(r"```python\s*(.*?)\s*```", raw, re.DOTALL)
     code = match.group(1).strip() if match else raw.strip()
 

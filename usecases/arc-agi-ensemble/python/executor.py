@@ -492,3 +492,22 @@ def register_dynamic_tool(name: str, code: str) -> tuple[bool, str]:
         return True, ""
     except Exception as e:
         return False, str(e)
+
+
+def test_tool_code(name: str, code: str, task: dict) -> tuple[bool, str]:
+    """
+    Compile, temporarily register, and test a tool against all demo pairs.
+
+    Runs a single-step pseudocode [tool=name, args={}] against every demo.
+    Returns (all_pass, trace_text). On compile error returns (False, error).
+    The tool remains registered (subsequent calls with the same name overwrite it).
+    """
+    ok, err = register_dynamic_tool(name, code)
+    if not ok:
+        return False, f"Compilation error: {err}"
+
+    pseudocode = [{"step": 1, "tool": name, "args": {}}]
+    er = run_executor(pseudocode, task)
+    if er.all_pass:
+        return True, ""
+    return False, format_execution_trace(er)
