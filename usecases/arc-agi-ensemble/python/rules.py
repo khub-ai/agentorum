@@ -283,6 +283,19 @@ class RuleEngine:
             r.pop("deprecated_reason", None)
             self.save()
 
+    def auto_deprecate(self, min_fired: int = 3) -> list[str]:
+        """Deprecate rules that have been fired but never succeeded.
+
+        Returns list of deprecated rule IDs.
+        """
+        deprecated = []
+        for r in self.active_rules():
+            s = r["stats"]
+            if s["fired"] >= min_fired and s["succeeded"] == 0:
+                self.deprecate_rule(r["id"], reason=f"auto: fired {s['fired']}x, 0 successes")
+                deprecated.append(r["id"])
+        return deprecated
+
     def edit_rule(self, rule_id: str, condition: str = "", action: str = "") -> None:
         """Human-driven edit of a rule's condition or action."""
         r = self.get(rule_id)
@@ -488,11 +501,24 @@ class RuleEngine:
                                      success: bool) -> str:
         """
         Build a prompt section instructing MEDIATOR to update rules.
+        Shows all existing rules so MEDIATOR can merge/generalize instead of duplicating.
         """
         parts = ["\n## Rule System\n"]
 
+        # Show ALL active rules so MEDIATOR can detect duplicates before creating new ones
+        all_active = self.active_rules()
+        if all_active:
+            parts.append("### Existing rules (check before creating new ones)\n")
+            for r in all_active:
+                sr = self._success_rate(r)
+                parts.append(
+                    f"- [{r['id']}] tags={r.get('tags',[])} success={sr:.0%} fired={r['stats']['fired']}x\n"
+                    f"  CONDITION: {r['condition']}\n"
+                    f"  ACTION: {r['action'][:120]}"
+                )
+
         if fired:
-            parts.append("The following rules were fired for this task:")
+            parts.append("\n### Rules matched for this task\n")
             for m in fired:
                 parts.append(f"- {m.rule_id}: {m.rule['condition'][:80]}")
             outcome = "SUCCEEDED" if success else "FAILED"
@@ -501,25 +527,36 @@ class RuleEngine:
         if not success:
             parts.append(
                 "\nSince the task failed, consider:\n"
-                "- Were the fired rules' conditions too broad? → **specialize** them\n"
-                "- Were the fired rules' actions misleading? → create a **new** rule with better guidance\n"
-                "- Was a correct rule missing? → create a **new** rule for this puzzle type\n"
-                "- Could a fired rule be **generalized** to cover more cases while still being correct?"
+                "- Were fired rules too broad? → **specialize** them\n"
+                "- Were fired rules misleading? → create a **new** rule with better guidance\n"
+                "- Was a correct rule missing? → create a **new** rule for this puzzle type"
             )
         else:
             parts.append(
                 "\nSince the task succeeded, consider:\n"
-                "- Can the successful approach be captured as a **new** rule?\n"
-                "- Can any fired rule be **generalized** to cover similar puzzles?"
+                "- Can the successful approach be captured as a rule?\n"
+                "- Can any existing rule be **generalized** to cover this puzzle type too?"
             )
 
         parts.append(
-            "\nTo update rules, include a JSON block:\n"
+            "\n### Rule writing guidelines\n"
+            "**DEDUPLICATION**: Before writing `action: new`, scan the existing rules above. "
+            "If an existing rule covers the same transformation category, prefer `generalize` or `merge` over `new`. "
+            "Do NOT create a new rule if one already exists with a very similar condition.\n\n"
+            "**CONDITION FORMAT**: Start every condition with a category tag in brackets, e.g.:\n"
+            "  `[gravity] Grid contains objects that need to be sorted by type...`\n"
+            "  `[path-drawing] Grid has exactly 3 colored points on a black background...`\n"
+            "  `[proximity] Grid has two boundary lines and scattered trigger cells...`\n"
+            "Categories: gravity, path-drawing, proximity, flood-fill, object-manipulation, "
+            "sorting, completion, extraction, scaling, rule-induction\n\n"
+            "**GENERALITY**: Conditions should describe a *category* of puzzles, not a specific puzzle. "
+            "Avoid encoding specific colors, specific grid sizes, or specific coordinates.\n\n"
+            "To update rules, include a JSON block:\n"
             "```json\n"
             '{"rule_updates": [\n'
-            '  {"action": "new", "condition": "...", "rule_action": "...", "tags": [...]},\n'
-            '  {"action": "generalize", "parent_id": "r_001", "condition": "...", "rule_action": "...", "reason": "..."},\n'
-            '  {"action": "specialize", "parent_id": "r_002", "condition": "...", "rule_action": "...", "reason": "..."}\n'
+            '  {"action": "new", "condition": "[category] ...", "rule_action": "...", "tags": [...]},\n'
+            '  {"action": "generalize", "parent_id": "r_001", "condition": "[category] ...", "rule_action": "...", "reason": "..."},\n'
+            '  {"action": "merge", "parent_ids": ["r_003", "r_005"], "condition": "[category] ...", "rule_action": "...", "reason": "..."}\n'
             "]}\n"
             "```\n"
             "Omit the rule_updates block if no changes are needed."

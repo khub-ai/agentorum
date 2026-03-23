@@ -27,11 +27,17 @@ from metadata import SolverEntry, MediatorDecision, extract_json_grid
 PROMPTS_DIR = Path(__file__).parent.parent / "prompts"
 
 PROMPT_FILES = {
+    "SOLVER":             PROMPTS_DIR / "solver.md",
     "SOLVER-SPATIAL":     PROMPTS_DIR / "solver-spatial.md",
     "SOLVER-PROCEDURAL":  PROMPTS_DIR / "solver-procedural.md",
     "SOLVER-ANALOGICAL":  PROMPTS_DIR / "solver-analogical.md",
     "MEDIATOR":           PROMPTS_DIR / "mediator.md",
 }
+
+# Default solver set — single solver for efficiency.
+# Swap in multiple specialist solvers for hard puzzles:
+#   DEFAULT_SOLVERS = ["SOLVER-SPATIAL", "SOLVER-PROCEDURAL", "SOLVER-ANALOGICAL"]
+DEFAULT_SOLVERS: list[str] = ["SOLVER"]
 
 _prompt_cache: dict[str, str] = {}
 
@@ -253,8 +259,16 @@ async def run_solvers_round1(
     task: dict,
     prior_knowledge: str = "",
     human_hypothesis: str = "",
+    solver_ids: list[str] | None = None,
 ) -> list[SolverEntry]:
-    """Run all three solvers in parallel for Round 1 (text-only hypotheses)."""
+    """Run solvers in parallel for Round 1 (text-only hypotheses).
+
+    solver_ids defaults to DEFAULT_SOLVERS. Pass a different list to run
+    multiple specialist solvers (e.g. for hard puzzles).
+    """
+    if solver_ids is None:
+        solver_ids = DEFAULT_SOLVERS
+
     task_text = format_task_for_prompt(task)
     knowledge_section = (
         f"\n## Prior Knowledge\n{prior_knowledge}\n" if prior_knowledge.strip() else ""
@@ -280,11 +294,7 @@ async def run_solvers_round1(
             duration_ms=ms,
         )
 
-    results = await asyncio.gather(
-        run_one("SOLVER-SPATIAL"),
-        run_one("SOLVER-PROCEDURAL"),
-        run_one("SOLVER-ANALOGICAL"),
-    )
+    results = await asyncio.gather(*[run_one(sid) for sid in solver_ids])
     return list(results)
 
 

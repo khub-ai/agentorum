@@ -5,7 +5,7 @@ New architecture: reasoning separated from execution.
 
 Protocol:
   Round 0:  Rule matching — evaluate active rules against puzzle
-  Round 1:  Three solvers propose TEXT-ONLY hypotheses (parallel)
+  Round 1:  Solver(s) propose TEXT-ONLY hypotheses (parallel if multiple)
   Round 2:  MEDIATOR synthesizes hypotheses into pseudo-code
   Round 3:  EXECUTOR runs pseudo-code against all demo pairs (deterministic)
             if all pass -> apply to test input -> done
@@ -23,7 +23,7 @@ from metadata import TaskMetadata, SolverEntry, MediatorDecision, compute_outcom
 from agents import (
     run_solvers_round1, run_mediator_synthesize, run_mediator_revise,
     run_tool_generator, run_tool_generator_fix, call_agent,
-    format_task_for_prompt, DEFAULT_MODEL,
+    format_task_for_prompt, DEFAULT_MODEL, DEFAULT_SOLVERS,
     reset_cost_tracker, get_cost_tracker,
 )
 from executor import (
@@ -137,6 +137,7 @@ async def run_ensemble(
     human_revision_hint: str = "",
     verbose: bool = True,
     dataset: str = "",
+    solver_ids: list[str] | None = None,
 ) -> TaskMetadata:
     """
     Run the full ensemble on a single ARC-AGI task.
@@ -203,6 +204,7 @@ async def run_ensemble(
         task,
         prior_knowledge=rules_prompt_section,
         human_hypothesis=human_hypothesis,
+        solver_ids=solver_ids,
     )
     meta.solvers_r1 = r1_entries
     log(f"  Done in {time.time()-t_r1:.1f}s", force=True)
@@ -337,6 +339,11 @@ async def run_ensemble(
         rule_changes = rule_engine.parse_mediator_rule_updates(mediator_text, task_id)
         if rule_changes:
             log(f"  Rule updates: {len(rule_changes)} rule(s) created/modified", force=True)
+
+    # Auto-deprecate consistently failing rules
+    deprecated = rule_engine.auto_deprecate()
+    if deprecated:
+        log(f"  Auto-deprecated {len(deprecated)} rule(s): {deprecated}", force=True)
 
     if verbose and not human_in_loop:
         print_task_summary(meta, expected)
