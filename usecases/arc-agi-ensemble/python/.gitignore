@@ -8,6 +8,7 @@ dist/
 build/
 knowledge.json
 rules.json
+tools.json
 results.json
 charts/
 *.png

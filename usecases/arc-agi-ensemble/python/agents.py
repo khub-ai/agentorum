@@ -180,6 +180,13 @@ async def call_agent(
                 _cost_tracker.add(response.usage.input_tokens,
                                   response.usage.output_tokens)
             return text, duration_ms
+        except anthropic.RateLimitError:
+            if attempt < max_retries - 1:
+                wait = 60 * (attempt + 1)  # 60s, 120s, 180s, 240s
+                print(f"  [rate-limit] {agent_id} retry {attempt+1}/{max_retries-1} in {wait}s...")
+                await asyncio.sleep(wait)
+            else:
+                raise
         except anthropic.APIStatusError as e:
             if e.status_code == 529 and attempt < max_retries - 1:
                 wait = 2 ** attempt  # 1s, 2s, 4s, 8s, 16s
@@ -308,6 +315,7 @@ async def run_mediator_synthesize(
     prior_knowledge: str = "",
     human_insight: str = "",
     rule_section: str = "",
+    tool_section: str = "",
 ) -> tuple[str, list[dict], int]:
     """
     Ask MEDIATOR to synthesize solver hypotheses into pseudo-code.
@@ -330,6 +338,7 @@ async def run_mediator_synthesize(
         f"\n## Human Insight\n{human_insight}\n" if human_insight.strip() else ""
     )
     rule_mgmt_section = f"\n{rule_section}\n" if rule_section.strip() else ""
+    tool_avail_section = f"\n{tool_section}\n" if tool_section.strip() else ""
 
     user_msg = (
         f"{knowledge_section}{human_section}"
@@ -338,6 +347,7 @@ async def run_mediator_synthesize(
         + "\n\n".join(proposals)
         + "\n\nPlease synthesize these hypotheses into a pseudo-code sequence of tool calls "
         "that the EXECUTOR can run against the demo pairs."
+        + tool_avail_section
         + rule_mgmt_section
     )
 
@@ -465,6 +475,13 @@ async def run_tool_generator(tool_spec: dict, task: dict | None = None) -> tuple
                 messages=[{"role": "user", "content": user_msg}],
             )
             break
+        except anthropic.RateLimitError:
+            if attempt < 4:
+                wait = 60 * (attempt + 1)
+                print(f"  [rate-limit] tool-gen retry {attempt+1}/4 in {wait}s...")
+                await asyncio.sleep(wait)
+            else:
+                raise
         except anthropic.APIStatusError as e:
             if e.status_code == 529 and attempt < 4:
                 await asyncio.sleep(2 ** attempt)
@@ -538,6 +555,13 @@ async def run_tool_generator_fix(
                 messages=[{"role": "user", "content": user_msg}],
             )
             break
+        except anthropic.RateLimitError:
+            if attempt < 4:
+                wait = 60 * (attempt + 1)
+                print(f"  [rate-limit] tool-fix retry {attempt+1}/4 in {wait}s...")
+                await asyncio.sleep(wait)
+            else:
+                raise
         except anthropic.APIStatusError as e:
             if e.status_code == 529 and attempt < 4:
                 await asyncio.sleep(2 ** attempt)

@@ -37,6 +37,7 @@ sys.path.insert(0, str(_HERE))
 import ensemble
 from ensemble import run_ensemble
 from rules import RuleEngine
+from tools import ToolRegistry
 from metadata import TaskMetadata, compute_outcome
 from visualize import save_all_charts
 import agents
@@ -57,7 +58,7 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--data-dir", default=DEFAULT_DATA_DIR)
     p.add_argument("--limit",    type=int, default=1)
     p.add_argument("--offset",   type=int, default=0)
-    p.add_argument("--task-id",  default="")
+    p.add_argument("--task-id", "--task", dest="task_id", default="")
     p.add_argument("--output",   default=DEFAULT_OUTPUT)
     p.add_argument("--human",    action="store_true", help="Enable human-in-the-loop checkpoints")
     p.add_argument("--hypothesis",     default="", metavar="TEXT",
@@ -124,6 +125,12 @@ async def main() -> None:
     rules_path = args.rules or None
     rules = RuleEngine(rules_path)
 
+    # Tool registry — load and re-register all previously verified tools
+    tool_reg = ToolRegistry()
+    loaded_tools = tool_reg.load_into_executor()
+    if loaded_tools:
+        console.print(f"[dim]  Restored {len(loaded_tools)} tool(s) from registry: {loaded_tools}[/dim]")
+
     console.print(Panel(
         f"[bold]ARC-AGI Python Ensemble[/bold]\n"
         f"Model:  [cyan]{DEFAULT_MODEL}[/cyan]\n"
@@ -131,7 +138,8 @@ async def main() -> None:
         f"Flags:  human={'on' if args.human else 'off'}  "
         f"prompts={'on' if args.prompts else 'off'}  "
         f"charts={'on' if args.charts else 'off'}\n"
-        f"Rules:  {rules.path}  {rules.stats_summary()}",
+        f"Rules:  {rules.path}  {rules.stats_summary()}\n"
+        f"Tools:  {tool_reg.path}  {tool_reg.stats_summary()}",
         title="Harness"
     ))
 
@@ -154,6 +162,7 @@ async def main() -> None:
             task_id=task_id,
             expected=expected,
             rule_engine=rules,
+            tool_registry=tool_reg,
             human_in_loop=args.human,
             human_hypothesis=args.hypothesis,
             human_insight=args.insight,

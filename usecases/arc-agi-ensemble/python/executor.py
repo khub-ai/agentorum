@@ -21,7 +21,7 @@ from grid_tools import (
     apply_gravity, flood_fill, replace_color, rotate_90,
     flip_horizontal, flip_vertical, transpose, crop, pad,
     bounding_box, unique_colors, color_count, shape,
-    count_connected_components, gravity_by_type,
+    count_connected_components, gravity_by_type, unshear_right,
 )
 
 
@@ -190,6 +190,10 @@ def _gravity_by_type(grid: Grid, background: int = 0) -> Grid:
     """Closed hollow rectangles float UP; open/cross shapes sink DOWN. Objects are rigid units preserving color."""
     return gravity_by_type(grid, background=background)
 
+def _unshear_right(grid: Grid, background: int = 0) -> Grid:
+    """One de-shear step: keep each component's bottom row fixed, shift all other rows right by 1 (capped at max_right)."""
+    return unshear_right(grid, background=background)
+
 
 # Register all built-in tools
 for _name, _fn in [
@@ -209,6 +213,7 @@ for _name, _fn in [
     ("extract_objects", _extract_objects),
     ("mirror_diagonal", _mirror_diagonal),
     ("gravity_by_type", _gravity_by_type),
+    ("unshear_right", _unshear_right),
 ]:
     register_tool(_name, _fn)
 

@@ -31,6 +31,7 @@ from executor import (
     parse_new_tools, register_dynamic_tool, test_tool_code,
 )
 from rules import RuleEngine, RuleMatch
+from tools import ToolRegistry
 import display as disp
 
 MAX_REVISIONS = 5  # how many times MEDIATOR can revise pseudo-code after failure
@@ -44,29 +45,50 @@ async def _generate_and_register_tools(
     human_in_loop: bool,
     log_fn,
     task: dict | None = None,
+    tool_registry: ToolRegistry | None = None,
 ) -> list[dict]:
     """
     Parse new tool requests from MEDIATOR response, generate Python code for each,
     verify against demo pairs, and self-correct up to _TOOL_FIX_ATTEMPTS times.
-    Only registers a tool once it passes all demos (or exhausts retries).
+
+    If tool_registry is provided:
+    - Cache hit: reloads code from registry, skipping generation entirely.
+    - Cache miss: generates, verifies, then persists verified tools to registry.
     """
     specs = parse_new_tools(mediator_text)
     results = []
 
     for spec in specs:
         name = spec.get("name", "?")
-        log_fn(f"  [tool_creator] Generating tool: {name}...", force=True)
-
-        code, gen_ms = await run_tool_generator(spec, task=task)
-        total_ms = gen_ms
+        total_ms = 0
         final_success = False
         final_error = ""
+        code = ""
+
+        # ---- Registry cache check ----------------------------------------
+        if tool_registry:
+            cached = tool_registry.get(name)
+            if cached:
+                ok, err = register_dynamic_tool(name, cached["code"])
+                log_fn(f"  [tool_creator] {name}: loaded from registry (task "
+                       f"{cached.get('source_task', '?')})", force=True)
+                results.append({
+                    "name": name, "spec": spec, "code": cached["code"],
+                    "success": ok, "error": err, "ms": 0,
+                })
+                if human_in_loop:
+                    disp.show_tool_generation(spec, cached["code"], ok, err)
+                continue
+
+        # ---- Generate new tool -------------------------------------------
+        log_fn(f"  [tool_creator] Generating tool: {name}...", force=True)
+        code, gen_ms = await run_tool_generator(spec, task=task)
+        total_ms = gen_ms
+        fix_attempt = 0
 
         if task:
-            # Verify against demos and self-correct if needed
             all_pass, trace = test_tool_code(name, code, task)
 
-            fix_attempt = 0
             while not all_pass and fix_attempt < _TOOL_FIX_ATTEMPTS:
                 fix_attempt += 1
                 log_fn(f"  [tool_creator] {name}: demo verification failed, fixing "
@@ -82,18 +104,27 @@ async def _generate_and_register_tools(
                        f"({'first try' if fix_attempt == 0 else f'{fix_attempt} fix(es)'})",
                        force=True)
             else:
-                # Register anyway with last attempt — MEDIATOR may still
-                # select a different tool or revision path
                 final_success, final_error = register_dynamic_tool(name, code)
                 log_fn(f"  [tool_creator] {name}: FAILED verification after "
                        f"{_TOOL_FIX_ATTEMPTS} fix(es) — registered with last attempt",
                        force=True)
         else:
-            # No task available — fall back to compile-only check
             final_success, final_error = register_dynamic_tool(name, code)
             log_fn(f"  [tool_creator] {name}: "
                    f"{'registered OK (no demo check)' if final_success else f'FAILED: {final_error}'}",
                    force=True)
+
+        # ---- Persist to registry if verified ------------------------------
+        if tool_registry and code:
+            source_task = task.get("_task_id", "") if task else ""
+            tool_registry.register(
+                name=name,
+                code=code,
+                verified=final_success,
+                source_task=source_task,
+                description=spec.get("description", ""),
+                fix_attempts=fix_attempt,
+            )
 
         results.append({
             "name": name, "spec": spec, "code": code,
@@ -131,6 +162,7 @@ async def run_ensemble(
     task_id: str = "unknown",
     expected: Optional[Grid] = None,
     rule_engine: Optional[RuleEngine] = None,
+    tool_registry: Optional[ToolRegistry] = None,
     human_in_loop: bool = False,
     human_hypothesis: str = "",
     human_insight: str = "",
@@ -146,6 +178,11 @@ async def run_ensemble(
     """
     if rule_engine is None:
         rule_engine = RuleEngine()
+    if tool_registry is None:
+        tool_registry = ToolRegistry()
+
+    # Tag task dict with its ID so _generate_and_register_tools can record it
+    task["_task_id"] = task_id
 
     reset_cost_tracker()
     _tools_generated: list[str] = []
@@ -225,6 +262,7 @@ async def run_ensemble(
     t_r2 = time.time()
 
     rule_section = rule_engine.build_mediator_rule_section(matched_rules, success=True)
+    tool_section = tool_registry.build_tool_section_for_prompt()
 
     mediator_text, pseudocode, mediator_ms = await run_mediator_synthesize(
         task=task,
@@ -232,12 +270,15 @@ async def run_ensemble(
         prior_knowledge=rules_prompt_section,
         human_insight=human_r2_insight or human_hypothesis,
         rule_section=rule_section,
+        tool_section=tool_section,
     )
     log(f"  Done in {time.time()-t_r2:.1f}s  |  {len(pseudocode)} steps", force=True)
     for s in pseudocode:
         log(f"    Step {s.get('step', '?')}: {s.get('tool', '?')}({s.get('args', {})})")
 
-    for r in await _generate_and_register_tools(mediator_text, human_in_loop, log, task=task):
+    for r in await _generate_and_register_tools(
+        mediator_text, human_in_loop, log, task=task, tool_registry=tool_registry
+    ):
         if r["success"]:
             _tools_generated.append(r["name"])
 
@@ -278,7 +319,9 @@ async def run_ensemble(
         mediator_ms += rev_ms
         log(f"  Revised: {len(pseudocode)} steps", force=True)
 
-        for r in await _generate_and_register_tools(mediator_text, human_in_loop, log, task=task):
+        for r in await _generate_and_register_tools(
+            mediator_text, human_in_loop, log, task=task, tool_registry=tool_registry
+        ):
             if r["success"]:
                 _tools_generated.append(r["name"])
 

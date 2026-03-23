@@ -332,6 +332,41 @@ COLOR_NAMES = {
     5: "gray", 6: "magenta", 7: "orange", 8: "azure", 9: "maroon"
 }
 
+
+def unshear_right(grid: Grid, background: int = 0, **kwargs) -> Grid:
+    """
+    One-step de-shear: for each color group, keep the bottom row fixed
+    and shift every cell in every other row right by 1, capped at the
+    group's max right column (min(col + 1, max_right)).
+
+    Groups by color (not 4-connectivity) because sheared shapes are
+    diagonally connected, not orthogonally connected.
+    """
+    from collections import defaultdict
+    rows = len(grid)
+    cols = len(grid[0]) if rows else 0
+
+    color_cells: dict = defaultdict(list)
+    for r in range(rows):
+        for c in range(cols):
+            v = grid[r][c]
+            if v != background:
+                color_cells[v].append((r, c))
+
+    result = [[background] * cols for _ in range(rows)]
+
+    for color, cells in color_cells.items():
+        bottom_row = max(r for r, _ in cells)
+        max_right = max(c for _, c in cells)
+        for r, c in cells:
+            if r == bottom_row:
+                result[r][c] = color
+            else:
+                result[r][min(c + 1, max_right)] = color
+
+    return result
+
+
 # ANSI color codes for terminal rendering
 _ANSI = {
     0: "\033[40m",   # black bg
