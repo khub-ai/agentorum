@@ -9,6 +9,8 @@ Usage:
   python harness.py --all                    # entire dataset
   python harness.py --all --resume           # resume interrupted run
   python harness.py --all --skip-ids v1_ids.json   # v2-only tasks
+  python harness.py --all --failed-output failed.json  # track failures
+  python harness.py --task-list failed.json --human    # retry failures
   python harness.py --human                  # enable human-in-the-loop
   python harness.py --charts                 # save charts per task
   python harness.py --output results.json    # custom output file
@@ -65,6 +67,7 @@ def _save_results(
     rules: "RuleEngine",
 ) -> None:
     """Atomically write results with up-to-date summary stats."""
+    output_path.parent.mkdir(parents=True, exist_ok=True)
     total        = len(all_results)
     correct      = sum(1 for r in all_results if r.get("correct"))
     accuracy     = correct / total if total > 0 else 0.0
@@ -98,6 +101,15 @@ def _save_results(
     os.replace(tmp, output_path)
 
 
+def _save_failed(failed_path: Path, all_results: list[dict]) -> None:
+    """Atomically write/update a JSON list of task IDs where correct=False."""
+    failed_path.parent.mkdir(parents=True, exist_ok=True)
+    failed_ids = [r["task_id"] for r in all_results if not r.get("correct")]
+    tmp = failed_path.with_suffix(".tmp")
+    tmp.write_text(json.dumps(failed_ids, indent=2), encoding="utf-8")
+    os.replace(tmp, failed_path)
+
+
 # ---------------------------------------------------------------------------
 # Argument parsing
 # ---------------------------------------------------------------------------
@@ -125,7 +137,11 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--all",      action="store_true", help="Run entire dataset (ignores --limit/--offset)")
     p.add_argument("--resume",   action="store_true", help="Skip tasks already recorded in --output file")
     p.add_argument("--skip-ids", dest="skip_ids", default="", metavar="FILE",
-                   help="Path to a JSON challenges file or text file of task IDs to exclude")
+                   help="Path to a JSON challenges file or list of task IDs to exclude")
+    p.add_argument("--task-list", dest="task_list", default="", metavar="FILE",
+                   help="Path to a JSON list of task IDs to run (e.g. a failed.json from a previous run)")
+    p.add_argument("--failed-output", dest="failed_output", default="", metavar="FILE",
+                   help="Path to write/update a JSON list of failed task IDs after each task")
     p.add_argument("--quiet",    action="store_true", help="Minimal output")
     p.add_argument("--dataset",  default="training",
                    help="Dataset name for leaderboard tracking (training/eval/test)")
@@ -172,6 +188,16 @@ async def main() -> None:
     all_ids = list(challenges.keys())
     if args.task_id:
         task_ids = [args.task_id]
+    elif args.task_list:
+        tl_path = Path(args.task_list)
+        if not tl_path.exists():
+            console.print(f"[red]--task-list file not found: {tl_path}[/red]")
+            sys.exit(1)
+        task_ids = json.loads(tl_path.read_text(encoding="utf-8"))
+        if not isinstance(task_ids, list):
+            console.print("[red]--task-list file must be a JSON list of task IDs[/red]")
+            sys.exit(1)
+        console.print(f"[dim]  --task-list: {len(task_ids)} task(s) loaded from {tl_path}[/dim]")
     elif args.all:
         task_ids = all_ids  # --limit applied after filtering (below)
     else:
@@ -298,6 +324,8 @@ async def main() -> None:
 
         # Incremental save — survives crashes; loses at most the current task
         _save_results(output_path, all_results, DEFAULT_MODEL, args.dataset, rules)
+        if args.failed_output:
+            _save_failed(Path(args.failed_output), all_results)
 
     # ------------------------------------------------------------------
     # Final summary table
@@ -328,6 +356,9 @@ async def main() -> None:
     table.add_row("Rules (total)",    str(rules.stats_summary()["total"]))
     console.print(table)
     console.print(f"Results written to [bold]{args.output}[/bold]")
+    if args.failed_output:
+        failed_count = sum(1 for r in all_results if not r.get("correct"))
+        console.print(f"Failed tasks ({failed_count}) written to [bold]{args.failed_output}[/bold]")
 
 
 if __name__ == "__main__":
