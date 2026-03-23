@@ -8,6 +8,7 @@ Usage:
   python harness.py --limit 5 --offset 20   # tasks 21-25
   python harness.py --all                    # entire dataset
   python harness.py --all --resume           # resume interrupted run
+  python harness.py --all --skip-ids v1_ids.json   # v2-only tasks
   python harness.py --human                  # enable human-in-the-loop
   python harness.py --charts                 # save charts per task
   python harness.py --output results.json    # custom output file
@@ -122,6 +123,8 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--max-revisions", type=int, default=None, help="Override MAX_REVISIONS (default: 5)")
     p.add_argument("--all",      action="store_true", help="Run entire dataset (ignores --limit/--offset)")
     p.add_argument("--resume",   action="store_true", help="Skip tasks already recorded in --output file")
+    p.add_argument("--skip-ids", dest="skip_ids", default="", metavar="FILE",
+                   help="Path to a JSON challenges file or text file of task IDs to exclude")
     p.add_argument("--quiet",    action="store_true", help="Minimal output")
     p.add_argument("--dataset",  default="training",
                    help="Dataset name for leaderboard tracking (training/eval/test)")
@@ -172,6 +175,26 @@ async def main() -> None:
         task_ids = all_ids
     else:
         task_ids = all_ids[args.offset : args.offset + args.limit]
+
+    # Skip-IDs filter (e.g. to exclude v1 tasks and run v2-only)
+    skip_ids: set[str] = set()
+    if args.skip_ids:
+        skip_path = Path(args.skip_ids)
+        if not skip_path.exists():
+            console.print(f"[red]--skip-ids file not found: {skip_path}[/red]")
+            sys.exit(1)
+        raw = json.loads(skip_path.read_text(encoding="utf-8"))
+        if isinstance(raw, dict):
+            skip_ids = set(raw.keys())   # challenges JSON — use keys as IDs
+        elif isinstance(raw, list):
+            skip_ids = set(raw)          # plain list of IDs
+        else:
+            console.print("[red]--skip-ids file must be a JSON dict or list[/red]")
+            sys.exit(1)
+        before = len(task_ids)
+        task_ids = [tid for tid in task_ids if tid not in skip_ids]
+        console.print(f"[dim]  --skip-ids: excluded {before - len(task_ids)} tasks "
+                      f"({len(task_ids)} remaining)[/dim]")
 
     # Rule engine
     rules_path = args.rules or None
