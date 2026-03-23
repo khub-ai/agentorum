@@ -27,6 +27,30 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Optional
 
+
+# ---------------------------------------------------------------------------
+# File locking (cross-platform, no external deps)
+# ---------------------------------------------------------------------------
+
+def _acquire_lock(lock_path: Path, timeout: float = 15.0) -> bool:
+    """Spin-acquire an exclusive lock file. Returns True on success."""
+    deadline = time.monotonic() + timeout
+    while True:
+        try:
+            fd = os.open(str(lock_path), os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+            os.close(fd)
+            return True
+        except FileExistsError:
+            if time.monotonic() > deadline:
+                return False
+            time.sleep(0.05)
+
+def _release_lock(lock_path: Path) -> None:
+    try:
+        os.unlink(str(lock_path))
+    except OSError:
+        pass
+
 DEFAULT_PATH = Path(__file__).parent / "rules.json"
 
 
@@ -71,9 +95,41 @@ class RuleEngine:
         return {"version": 2, "rules": []}
 
     def save(self) -> None:
+        """Write rules to disk with file locking and merge-on-save.
+
+        Concurrent processes each hold their own in-memory state. On save:
+        1. Acquire exclusive lock
+        2. Re-read current disk state (may have rules added by other processes)
+        3. Merge: add any rules we have that disk doesn't, update stats for shared rules
+        4. Atomic write (temp file + os.replace)
+        5. Update our in-memory state to the merged result
+        """
         self.path.parent.mkdir(parents=True, exist_ok=True)
-        with open(self.path, "w", encoding="utf-8") as f:
-            json.dump(self._data, f, indent=2)
+        lock_path = self.path.with_suffix(".lock")
+        _acquire_lock(lock_path)
+        try:
+            # Re-read disk to pick up concurrent writes
+            disk: dict[str, Any] = self._load()
+            disk_index: dict[str, int] = {r["id"]: i for i, r in enumerate(disk["rules"])}
+
+            for rule in self.rules:
+                if rule["id"] not in disk_index:
+                    # New rule we created — append it
+                    disk["rules"].append(rule)
+                else:
+                    # Rule exists on disk — our in-memory copy has the freshest stats
+                    disk["rules"][disk_index[rule["id"]]] = rule
+
+            # Atomic write: write to .tmp then rename
+            tmp = self.path.with_suffix(".tmp")
+            with open(tmp, "w", encoding="utf-8") as f:
+                json.dump(disk, f, indent=2)
+            os.replace(tmp, self.path)
+
+            # Sync our in-memory state to what we wrote
+            self._data = disk
+        finally:
+            _release_lock(lock_path)
 
     def reload(self) -> None:
         self._data = self._load()
