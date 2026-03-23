@@ -187,16 +187,37 @@ show_r1_proposals = show_r1_hypotheses
 # Checkpoint 2 — Pseudo-code from MEDIATOR
 # ---------------------------------------------------------------------------
 
+def _extract_mediator_analysis(text: str) -> str:
+    """Strip JSON blocks from MEDIATOR response; return the prose explanation only."""
+    import re
+    # Remove ```json ... ``` blocks and bare { ... } JSON blobs
+    cleaned = re.sub(r"```(?:json)?\s*\{.*?\}\s*```", "", text, flags=re.DOTALL)
+    cleaned = re.sub(r"\{[^{}]*\"pseudocode\"[^{}]*\[.*?\][^{}]*\}", "", cleaned, flags=re.DOTALL)
+    cleaned = re.sub(r"\{[^{}]*\"rules_update\".*?\}", "", cleaned, flags=re.DOTALL)
+    # Collapse excess blank lines
+    cleaned = re.sub(r"\n{3,}", "\n\n", cleaned).strip()
+    return cleaned
+
+
 def show_pseudocode(steps: list[dict], mediator_text: str = "",
                     revision: int = 0) -> None:
-    """Display the MEDIATOR's pseudo-code steps."""
+    """Display the MEDIATOR's analysis and pseudo-code steps."""
     label = "Round 2 -- Pseudo-code" if not revision else f"Revision {revision} -- Pseudo-code"
     console.print(Rule(f"[bold magenta]{label}[/bold magenta]", style="magenta"))
 
+    # Always show MEDIATOR's prose analysis
+    if mediator_text:
+        analysis = _extract_mediator_analysis(mediator_text)
+        if analysis:
+            console.print(Panel(
+                Text(analysis, style="dim"),
+                title="[magenta]MEDIATOR Analysis[/magenta]",
+                border_style="magenta",
+            ))
+
     if not steps:
         console.print(Panel(
-            "[yellow]MEDIATOR produced no parseable pseudo-code steps.[/yellow]\n"
-            + Text(mediator_text[:500], style="dim").plain,
+            "[yellow]MEDIATOR produced no parseable pseudo-code steps.[/yellow]",
             title="[yellow]Warning[/yellow]",
             border_style="yellow",
         ))
@@ -208,7 +229,13 @@ def show_pseudocode(steps: list[dict], mediator_text: str = "",
     t.add_column("Arguments", no_wrap=False, max_width=60)
 
     for s in steps:
-        args_str = ", ".join(f"{k}={v}" for k, v in s.get("args", {}).items())
+        if not isinstance(s, dict):
+            continue
+        args_raw = s.get("args", {})
+        if isinstance(args_raw, dict):
+            args_str = ", ".join(f"{k}={v}" for k, v in args_raw.items())
+        else:
+            args_str = str(args_raw)
         t.add_row(
             str(s.get("step", "?")),
             s.get("tool", "?"),
@@ -274,7 +301,7 @@ def show_execution_result(exec_result, expected: Optional[Grid] = None) -> None:
                 diff_str = "  ".join(f"({r},{c}): {got}->{want}" for r, c, got, want in dr.diff)
                 console.print(f"  [yellow]Diffs: {diff_str}[/yellow]")
 
-    # Show test output if all passed
+    # Show test output only when all demos passed
     if er.all_pass and er.test_output:
         panels = [
             _grid_panel(er.test_output,
@@ -292,6 +319,42 @@ def show_execution_result(exec_result, expected: Optional[Grid] = None) -> None:
                                       footer=f"{acc*100:.0f}% acc"))
         console.print(Columns(panels, padding=(0, 2)))
 
+    console.print()
+
+
+# ---------------------------------------------------------------------------
+# Tool generation display
+# ---------------------------------------------------------------------------
+
+def show_tool_generation(spec: dict, code: str, success: bool, error: str = "") -> None:
+    """Display a dynamically generated tool."""
+    name = spec.get("name", "?")
+    description = spec.get("description", "")
+    color = "green" if success else "red"
+    status = "REGISTERED" if success else f"FAILED: {error}"
+
+    console.print(Rule(
+        f"[bold {color}]Tool Creator — {name} — {status}[/bold {color}]",
+        style=color,
+    ))
+    if description:
+        console.print(f"  [dim]{description}[/dim]")
+
+    behavior = spec.get("behavior", "")
+    if behavior:
+        console.print(Panel(
+            Text(behavior, style="dim"),
+            title="Requested behavior",
+            border_style="dim",
+        ))
+
+    if code:
+        from rich.syntax import Syntax
+        console.print(Panel(
+            Syntax(code, "python", theme="monokai", line_numbers=True),
+            title=f"[{'green' if success else 'red'}]Generated code[/{'green' if success else 'red'}]",
+            border_style=color,
+        ))
     console.print()
 
 
@@ -326,13 +389,25 @@ def show_final_result(meta: TaskMetadata, expected: Optional[Grid]) -> None:
 # Human input prompts
 # ---------------------------------------------------------------------------
 
-def human_checkpoint(prompt: str, context: str = "") -> str:
+def human_checkpoint(prompt: str, context: str = "", prefill: str = "") -> str:
     """
-    Pause and ask the human for input.
-    Returns the entered string, or "" if the user presses Enter with no input.
+    Show a human checkpoint.
+    If prefill is non-empty, display it automatically and return without blocking.
+    Otherwise, prompt interactively (press Enter to skip).
     """
     if context:
         console.print(Panel(Text(context, style="dim"), title="Context", border_style="dim"))
+
+    if prefill:
+        console.print(Panel(
+            f"[bold cyan]{prompt}[/bold cyan]\n"
+            f"[dim](pre-filled — injecting automatically)[/dim]",
+            title="[cyan]Your turn[/cyan]",
+            border_style="cyan",
+        ))
+        console.print(f"  > {prefill}")
+        console.print()
+        return prefill
 
     console.print(Panel(
         f"[bold cyan]{prompt}[/bold cyan]\n[dim](Press Enter with no input to skip)[/dim]",
@@ -347,7 +422,7 @@ def human_checkpoint(prompt: str, context: str = "") -> str:
     return response
 
 
-def human_hypothesis_checkpoint(task_id: str) -> str:
+def human_hypothesis_checkpoint(task_id: str, prefill: str = "") -> str:
     """Ask the human for their own hypothesis before the solvers run."""
     return human_checkpoint(
         prompt=(
@@ -357,10 +432,11 @@ def human_hypothesis_checkpoint(task_id: str) -> str:
             "  Your input will be shared with all agents as 'Human Hypothesis'."
         ),
         context=f"Task {task_id} — study the demo pairs above before answering.",
+        prefill=prefill,
     )
 
 
-def human_post_hypotheses_checkpoint() -> str:
+def human_post_hypotheses_checkpoint(prefill: str = "") -> str:
     """Ask for an insight after seeing solver hypotheses, before MEDIATOR synthesizes."""
     return human_checkpoint(
         prompt=(
@@ -368,10 +444,11 @@ def human_post_hypotheses_checkpoint() -> str:
             "  Do you see what they are missing? Which hypothesis looks most promising?\n"
             "  Your insight will guide the MEDIATOR's pseudo-code synthesis."
         ),
+        prefill=prefill,
     )
 
 
-def human_revision_checkpoint(attempt: int) -> str:
+def human_revision_checkpoint(attempt: int, prefill: str = "") -> str:
     """Ask for insight before MEDIATOR revises failed pseudo-code."""
     return human_checkpoint(
         prompt=(
@@ -379,6 +456,7 @@ def human_revision_checkpoint(attempt: int) -> str:
             "  Look at the execution trace above. Can you spot the problem?\n"
             "  Your insight will help the MEDIATOR revise the pseudo-code."
         ),
+        prefill=prefill,
     )
 
 

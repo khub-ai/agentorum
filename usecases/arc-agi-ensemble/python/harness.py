@@ -33,6 +33,7 @@ from rich.panel import Panel
 _HERE = Path(__file__).parent
 sys.path.insert(0, str(_HERE))
 
+import ensemble
 from ensemble import run_ensemble
 from rules import RuleEngine
 from metadata import TaskMetadata, compute_outcome
@@ -58,10 +59,17 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--task-id",  default="")
     p.add_argument("--output",   default=DEFAULT_OUTPUT)
     p.add_argument("--human",    action="store_true", help="Enable human-in-the-loop checkpoints")
+    p.add_argument("--hypothesis",     default="", metavar="TEXT",
+                   help="Pre-fill your hypothesis (shown before solvers run)")
+    p.add_argument("--insight",        default="", metavar="TEXT",
+                   help="Pre-fill your insight (shown after solver hypotheses, before MEDIATOR)")
+    p.add_argument("--revision-hint",  default="", metavar="TEXT",
+                   help="Pre-fill your revision hint (shown each time EXECUTOR fails)")
     p.add_argument("--prompts",  action="store_true", help="Print full prompts sent to each agent")
     p.add_argument("--charts",   action="store_true", help="Save charts per task")
     p.add_argument("--charts-dir", default="charts")
-    p.add_argument("--rules",    default="", help="Path to rules.json (default: auto)")
+    p.add_argument("--rules",        default="", help="Path to rules.json (default: auto)")
+    p.add_argument("--max-revisions", type=int, default=None, help="Override MAX_REVISIONS (default: 5)")
     p.add_argument("--quiet",    action="store_true", help="Minimal output")
     return p.parse_args()
 
@@ -74,6 +82,8 @@ async def main() -> None:
     args = parse_args()
     verbose = not args.quiet
     agents.SHOW_PROMPTS = args.prompts
+    if args.max_revisions is not None:
+        ensemble.MAX_REVISIONS = args.max_revisions
 
     # Load API key
     api_key = os.environ.get("ANTHROPIC_API_KEY")
@@ -142,6 +152,9 @@ async def main() -> None:
             expected=expected,
             rule_engine=rules,
             human_in_loop=args.human,
+            human_hypothesis=args.hypothesis,
+            human_insight=args.insight,
+            human_revision_hint=args.revision_hint,
             verbose=verbose,
         )
 

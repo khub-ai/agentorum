@@ -1,4 +1,5 @@
 node_modules/
+.private/
 .watch-state-*.json
 *.log
 .DS_Store

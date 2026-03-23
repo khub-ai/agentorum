@@ -22,13 +22,39 @@ from grid_tools import Grid, grids_equal, summarize
 from metadata import TaskMetadata, SolverEntry, MediatorDecision, compute_outcome, print_task_summary
 from agents import (
     run_solvers_round1, run_mediator_synthesize, run_mediator_revise,
-    call_agent, format_task_for_prompt, DEFAULT_MODEL,
+    run_tool_generator, call_agent, format_task_for_prompt, DEFAULT_MODEL,
 )
-from executor import run_executor, ExecutionResult, format_execution_trace, tool_signatures
+from executor import (
+    run_executor, ExecutionResult, format_execution_trace, tool_signatures,
+    parse_new_tools, register_dynamic_tool,
+)
 from rules import RuleEngine, RuleMatch
 import display as disp
 
-MAX_REVISIONS = 2  # how many times MEDIATOR can revise pseudo-code after failure
+MAX_REVISIONS = 5  # how many times MEDIATOR can revise pseudo-code after failure
+
+
+async def _generate_and_register_tools(
+    mediator_text: str,
+    human_in_loop: bool,
+    log_fn,
+) -> list[dict]:
+    """
+    Parse new tool requests from MEDIATOR response, generate Python code for each,
+    register them in the executor, and return a list of results for display.
+    """
+    specs = parse_new_tools(mediator_text)
+    results = []
+    for spec in specs:
+        name = spec.get("name", "?")
+        log_fn(f"  [tool_creator] Generating tool: {name}...", force=True)
+        code, gen_ms = await run_tool_generator(spec)
+        success, error = register_dynamic_tool(name, code)
+        log_fn(f"  [tool_creator] {name}: {'registered OK' if success else f'FAILED: {error}'}", force=True)
+        results.append({"spec": spec, "code": code, "success": success, "error": error, "ms": gen_ms})
+        if human_in_loop:
+            disp.show_tool_generation(spec, code, success, error)
+    return results
 
 
 # ---------------------------------------------------------------------------
@@ -58,6 +84,9 @@ async def run_ensemble(
     expected: Optional[Grid] = None,
     rule_engine: Optional[RuleEngine] = None,
     human_in_loop: bool = False,
+    human_hypothesis: str = "",
+    human_insight: str = "",
+    human_revision_hint: str = "",
     verbose: bool = True,
 ) -> TaskMetadata:
     """
@@ -106,10 +135,9 @@ async def run_ensemble(
     # ------------------------------------------------------------------
     # Checkpoint 0 — Show puzzle, ask for human hypothesis
     # ------------------------------------------------------------------
-    human_hypothesis = ""
     if human_in_loop:
         disp.show_puzzle(task, task_id, expected=expected)
-        human_hypothesis = disp.human_hypothesis_checkpoint(task_id)
+        human_hypothesis = disp.human_hypothesis_checkpoint(task_id, prefill=human_hypothesis)
         if human_hypothesis:
             log(f"  Human hypothesis: {human_hypothesis[:80]}")
 
@@ -136,7 +164,7 @@ async def run_ensemble(
     # ------------------------------------------------------------------
     human_r2_insight = ""
     if human_in_loop:
-        human_r2_insight = disp.human_post_hypotheses_checkpoint()
+        human_r2_insight = disp.human_post_hypotheses_checkpoint(prefill=human_insight)
 
     log("Round 2: MEDIATOR synthesizing pseudo-code...", force=True)
     t_r2 = time.time()
@@ -153,6 +181,8 @@ async def run_ensemble(
     log(f"  Done in {time.time()-t_r2:.1f}s  |  {len(pseudocode)} steps", force=True)
     for s in pseudocode:
         log(f"    Step {s.get('step', '?')}: {s.get('tool', '?')}({s.get('args', {})})")
+
+    await _generate_and_register_tools(mediator_text, human_in_loop, log)
 
     if human_in_loop:
         disp.show_pseudocode(pseudocode, mediator_text)
@@ -179,7 +209,7 @@ async def run_ensemble(
 
         human_revision_insight = ""
         if human_in_loop:
-            human_revision_insight = disp.human_revision_checkpoint(attempt)
+            human_revision_insight = disp.human_revision_checkpoint(attempt, prefill=human_revision_hint)
 
         mediator_text, pseudocode, rev_ms = await run_mediator_revise(
             task=task,
@@ -190,6 +220,8 @@ async def run_ensemble(
         )
         mediator_ms += rev_ms
         log(f"  Revised: {len(pseudocode)} steps", force=True)
+
+        await _generate_and_register_tools(mediator_text, human_in_loop, log)
 
         if human_in_loop:
             disp.show_pseudocode(pseudocode, mediator_text, revision=attempt)

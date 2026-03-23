@@ -21,7 +21,7 @@ from grid_tools import (
     apply_gravity, flood_fill, replace_color, rotate_90,
     flip_horizontal, flip_vertical, transpose, crop, pad,
     bounding_box, unique_colors, color_count, shape,
-    count_connected_components,
+    count_connected_components, gravity_by_type,
 )
 
 
@@ -186,6 +186,10 @@ def _mirror_diagonal(grid: Grid, direction: str = "main") -> Grid:
         return to_list(np.fliplr(np.flipud(arr.T)))
     return to_list(arr.T)
 
+def _gravity_by_type(grid: Grid, background: int = 0) -> Grid:
+    """Closed hollow rectangles float UP; open/cross shapes sink DOWN. Objects are rigid units preserving color."""
+    return gravity_by_type(grid, background=background)
+
 
 # Register all built-in tools
 for _name, _fn in [
@@ -204,6 +208,7 @@ for _name, _fn in [
     ("fill_background", _fill_background),
     ("extract_objects", _extract_objects),
     ("mirror_diagonal", _mirror_diagonal),
+    ("gravity_by_type", _gravity_by_type),
 ]:
     register_tool(_name, _fn)
 
@@ -233,12 +238,17 @@ def parse_pseudocode(text: str) -> list[dict]:
         try:
             obj = json.loads(raw)
             if isinstance(obj, dict) and "pseudocode" in obj:
-                return obj["pseudocode"]
-            if isinstance(obj, list) and obj and "tool" in obj[0]:
-                return obj
+                steps = [s for s in obj["pseudocode"] if isinstance(s, dict) and "tool" in s]
+                return steps[:MAX_PSEUDOCODE_STEPS]
+            if isinstance(obj, list) and obj and isinstance(obj[0], dict) and "tool" in obj[0]:
+                steps = [s for s in obj if isinstance(s, dict) and "tool" in s]
+                return steps[:MAX_PSEUDOCODE_STEPS]
         except (json.JSONDecodeError, Exception):
             continue
     return []
+
+
+MAX_PSEUDOCODE_STEPS = 20  # sanity cap — more than this is almost certainly hallucinated
 
 
 # ---------------------------------------------------------------------------
@@ -256,6 +266,8 @@ def execute_steps(grid: Grid, steps: list[dict]) -> tuple[Grid, list[StepResult]
     for i, step in enumerate(steps):
         tool_name = step.get("tool", "")
         args = step.get("args", {})
+        if not isinstance(args, dict):
+            args = {}
         step_num = step.get("step", i + 1)
 
         grid_before = [row[:] for row in current]
@@ -444,3 +456,39 @@ def format_execution_trace(result: ExecutionResult) -> str:
         lines.append("FAILED on one or more demos. Test output NOT applied.")
 
     return "\n".join(lines)
+
+
+# ---------------------------------------------------------------------------
+# Dynamic tool creation
+# ---------------------------------------------------------------------------
+
+def parse_new_tools(text: str) -> list[dict]:
+    """Extract new_tools specifications from MEDIATOR response."""
+    import numpy as np  # noqa — needed in exec namespace below
+    blocks = re.findall(r"```json\s*(\{.*?\})\s*```", text, re.DOTALL)
+    for block in blocks:
+        try:
+            data = json.loads(block)
+            if "new_tools" in data and isinstance(data["new_tools"], list):
+                return data["new_tools"]
+        except json.JSONDecodeError:
+            pass
+    return []
+
+
+def register_dynamic_tool(name: str, code: str) -> tuple[bool, str]:
+    """
+    Compile and register a dynamically generated tool function.
+    Returns (success, error_message).
+    """
+    import numpy as np
+    namespace: dict = {"np": np, "__builtins__": __builtins__}
+    try:
+        exec(compile(code, f"<tool:{name}>", "exec"), namespace)  # noqa: S102
+        fn = namespace.get(name)
+        if fn is None:
+            return False, f"Function '{name}' not found in generated code"
+        register_tool(name, fn)
+        return True, ""
+    except Exception as e:
+        return False, str(e)

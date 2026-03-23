@@ -126,6 +126,144 @@ def flood_fill(grid: Grid, start_row: int, start_col: int, fill_color: int) -> G
         stack.extend([(r+1,c),(r-1,c),(r,c+1),(r,c-1)])
     return to_list(arr)
 
+def _find_components(grid: Grid, background: int = 0) -> list[dict]:
+    """
+    Return all 4-connected components of non-background cells.
+    Each component dict has: cells (list of (r,c)), color, top, bottom, left, right.
+    """
+    from collections import deque
+    arr = to_np(grid)
+    rows, cols = arr.shape
+    visited = np.zeros((rows, cols), dtype=bool)
+    components: list[dict] = []
+
+    for r in range(rows):
+        for c in range(cols):
+            v = int(arr[r, c])
+            if v != background and not visited[r, c]:
+                cells: list[tuple[int, int]] = []
+                q: deque[tuple[int, int]] = deque([(r, c)])
+                visited[r, c] = True
+                while q:
+                    cr, cc = q.popleft()
+                    cells.append((cr, cc))
+                    for nr, nc in ((cr+1,cc),(cr-1,cc),(cr,cc+1),(cr,cc-1)):
+                        if 0 <= nr < rows and 0 <= nc < cols and not visited[nr,nc] and int(arr[nr,nc]) == v:
+                            visited[nr,nc] = True
+                            q.append((nr, nc))
+                rs = [x[0] for x in cells]
+                cs = [x[1] for x in cells]
+                components.append({
+                    "cells": cells, "color": v,
+                    "top": min(rs), "bottom": max(rs),
+                    "left": min(cs), "right": max(cs),
+                })
+    return components
+
+
+def _is_closed_hollow_rect(comp: dict) -> bool:
+    """
+    True if the component is a closed hollow rectangle:
+    - Bounding box at least 3×3
+    - All perimeter cells of bounding box filled, all interior cells empty
+    """
+    t, b, l, r = comp["top"], comp["bottom"], comp["left"], comp["right"]
+    h, w = b - t + 1, r - l + 1
+    if h < 3 or w < 3:
+        return False
+    expected = 2 * (h + w) - 4  # perimeter cell count
+    if len(comp["cells"]) != expected:
+        return False
+    cells_set = set(comp["cells"])
+    for row in range(t, b + 1):
+        for col in range(l, r + 1):
+            on_perim = (row == t or row == b or col == l or col == r)
+            in_set = (row, col) in cells_set
+            if on_perim != in_set:
+                return False
+    return True
+
+
+def gravity_by_type(
+    grid: Grid,
+    background: int = 0,
+    **kwargs,
+) -> Grid:
+    """
+    Type-classified gravity: closed hollow rectangles float UP, open/cross shapes sink DOWN.
+
+    Classification:
+      - Closed hollow rectangle: bounding box ≥ 3×3, all perimeter cells filled,
+        all interior cells background.
+      - Open/cross shape: everything else (plus, T, L, incomplete frame, solid, etc.)
+
+    Movement rules:
+      - Each object slides as a rigid unit (all cells shift by the same row delta).
+      - Object color is preserved.
+      - Closed rects stack from row 0 downward (sorted by original top row).
+      - Open shapes stack from last row upward (sorted by original bottom row).
+      - Different-type objects pass through each other freely.
+      - Same-type objects maintain original relative vertical order (no overlap).
+    """
+    arr = to_np(grid)
+    rows, cols = arr.shape
+
+    components = _find_components(grid, background=background)
+    for comp in components:
+        comp["type"] = "closed_rect" if _is_closed_hollow_rect(comp) else "open_shape"
+
+    result = np.zeros_like(arr)
+
+    # --- Stack closed rects from top ---
+    closed = sorted(
+        [c for c in components if c["type"] == "closed_rect"],
+        key=lambda x: x["top"],
+    )
+    col_top = [0] * cols  # next free row from top, per column
+
+    for comp in closed:
+        # new_top = highest row index such that no cell of the placed object
+        # overlaps with already-placed cells (respects col_top per column).
+        # For cell (cr, cc): placed row = new_top + (cr - comp["top"])
+        # Constraint: new_top + (cr - comp["top"]) >= col_top[cc]
+        # => new_top >= col_top[cc] - (cr - comp["top"])
+        new_top = max(
+            (col_top[cc] - (cr - comp["top"]) for (cr, cc) in comp["cells"]),
+            default=0,
+        )
+        new_top = max(new_top, 0)
+        delta = new_top - comp["top"]
+        for (cr, cc) in comp["cells"]:
+            result[cr + delta, cc] = comp["color"]
+        for (cr, cc) in comp["cells"]:
+            col_top[cc] = max(col_top[cc], cr + delta + 1)
+
+    # --- Stack open shapes from bottom ---
+    open_shapes = sorted(
+        [c for c in components if c["type"] == "open_shape"],
+        key=lambda x: -x["bottom"],
+    )
+    col_bot = [rows - 1] * cols  # next free row from bottom, per column
+
+    for comp in open_shapes:
+        # new_bottom = lowest row index such that no cell overlaps already-placed.
+        # For cell (cr, cc): placed row = new_bottom - (comp["bottom"] - cr)
+        # Constraint: new_bottom - (comp["bottom"] - cr) <= col_bot[cc]
+        # => new_bottom <= col_bot[cc] + (comp["bottom"] - cr)
+        new_bottom = min(
+            (col_bot[cc] + (comp["bottom"] - cr) for (cr, cc) in comp["cells"]),
+            default=rows - 1,
+        )
+        new_bottom = min(new_bottom, rows - 1)
+        delta = new_bottom - comp["bottom"]
+        for (cr, cc) in comp["cells"]:
+            result[cr + delta, cc] = comp["color"]
+        for (cr, cc) in comp["cells"]:
+            col_bot[cc] = min(col_bot[cc], cr + delta - 1)
+
+    return to_list(result)
+
+
 def count_connected_components(grid: Grid, color: int) -> int:
     """Count 4-connected components of the given color."""
     arr = to_np(grid).copy()

@@ -83,7 +83,7 @@ def format_task_for_prompt(task: dict) -> str:
 # Core call
 # ---------------------------------------------------------------------------
 
-DEFAULT_MODEL = "claude-sonnet-4-20250514"
+DEFAULT_MODEL = "claude-sonnet-4-6"
 DEFAULT_MAX_TOKENS = 4096
 
 # Set to True by harness/ensemble to print prompts before each call
@@ -95,10 +95,12 @@ async def call_agent(
     user_message: str,
     model: str = DEFAULT_MODEL,
     max_tokens: int = DEFAULT_MAX_TOKENS,
+    max_retries: int = 5,
 ) -> tuple[str, int]:
     """
     Call an agent with its system prompt + a user message.
     Returns (response_text, duration_ms).
+    Retries on 529 overloaded errors with exponential backoff.
     """
     system_prompt = load_prompt(agent_id)
 
@@ -107,15 +109,25 @@ async def call_agent(
 
     client = get_client()
     t0 = time.time()
-    response = await client.messages.create(
-        model=model,
-        max_tokens=max_tokens,
-        system=system_prompt,
-        messages=[{"role": "user", "content": user_message}],
-    )
-    duration_ms = int((time.time() - t0) * 1000)
-    text = response.content[0].text if response.content else ""
-    return text, duration_ms
+
+    for attempt in range(max_retries):
+        try:
+            response = await client.messages.create(
+                model=model,
+                max_tokens=max_tokens,
+                system=system_prompt,
+                messages=[{"role": "user", "content": user_message}],
+            )
+            duration_ms = int((time.time() - t0) * 1000)
+            text = response.content[0].text if response.content else ""
+            return text, duration_ms
+        except anthropic.APIStatusError as e:
+            if e.status_code == 529 and attempt < max_retries - 1:
+                wait = 2 ** attempt  # 1s, 2s, 4s, 8s, 16s
+                print(f"  [overloaded] {agent_id} retry {attempt+1}/{max_retries-1} in {wait}s...")
+                await asyncio.sleep(wait)
+            else:
+                raise
 
 
 def _print_prompt(agent_id: str, system: str, user: str, model: str) -> None:
@@ -321,3 +333,69 @@ async def run_mediator_revise(
     steps = parse_pseudocode(text)
 
     return text, steps, ms
+
+
+# ---------------------------------------------------------------------------
+# Tool generator — Claude writes Python code for new tools on demand
+# ---------------------------------------------------------------------------
+
+_TOOL_GENERATOR_SYSTEM = """You are a Python code generator for ARC-AGI grid transformation tools.
+
+Write a single Python function that implements the requested grid transformation.
+
+Requirements:
+- Signature: def {name}(grid, **kwargs) -> list
+  where `grid` is list[list[int]] (0 = background color)
+- Return a NEW 2D list of ints — never modify the input in-place
+- You may use numpy internally (imported as `np` and `numpy`)
+- Must be deterministic and handle edge cases (empty grid, single cell) gracefully
+- No docstring, no imports at module level — just the function body
+
+Return ONLY the function code inside a ```python block. No explanation outside the block."""
+
+
+async def run_tool_generator(tool_spec: dict) -> tuple[str, int]:
+    """
+    Ask Claude to generate Python code for a new grid transformation tool.
+    Returns (python_code_str, duration_ms).
+    """
+    name = tool_spec.get("name", "unnamed_tool")
+    system = _TOOL_GENERATOR_SYSTEM.replace("{name}", name)
+
+    args_desc = json.dumps(tool_spec.get("args", {}), indent=2)
+    behavior = tool_spec.get("behavior", "")
+    description = tool_spec.get("description", "")
+
+    user_msg = (
+        f"Tool name: `{name}`\n"
+        f"Description: {description}\n"
+        f"Arguments:\n{args_desc}\n\n"
+        f"Behavior:\n{behavior}\n\n"
+        f"Write `def {name}(grid, **kwargs)` implementing the above."
+    )
+
+    client = get_client()
+    t0 = time.time()
+    for attempt in range(5):
+        try:
+            response = await client.messages.create(
+                model=DEFAULT_MODEL,
+                max_tokens=2048,
+                system=system,
+                messages=[{"role": "user", "content": user_msg}],
+            )
+            break
+        except anthropic.APIStatusError as e:
+            if e.status_code == 529 and attempt < 4:
+                await asyncio.sleep(2 ** attempt)
+            else:
+                raise
+
+    duration_ms = int((time.time() - t0) * 1000)
+    raw = response.content[0].text if response.content else ""
+
+    # Extract code from ```python block
+    match = re.search(r"```python\s*(.*?)\s*```", raw, re.DOTALL)
+    code = match.group(1).strip() if match else raw.strip()
+
+    return code, duration_ms
