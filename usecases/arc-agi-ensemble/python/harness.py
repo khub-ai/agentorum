@@ -6,12 +6,15 @@ Usage:
   python harness.py --task-id 1e0a9b12       # specific task
   python harness.py --limit 10               # first 10 tasks
   python harness.py --limit 5 --offset 20   # tasks 21-25
+  python harness.py --all                    # entire dataset
+  python harness.py --all --resume           # resume interrupted run
   python harness.py --human                  # enable human-in-the-loop
   python harness.py --charts                 # save charts per task
   python harness.py --output results.json    # custom output file
 
 Data directory default: C:/_backup/arctest2025/data/training
-Override with --data-dir.
+Override with --data-dir.  For ARC-AGI-v2, point --data-dir at the v2
+training folder (same file naming convention as v1).
 """
 
 from __future__ import annotations
@@ -50,6 +53,51 @@ DEFAULT_OUTPUT   = "results.json"
 
 
 # ---------------------------------------------------------------------------
+# Incremental save (called after every task)
+# ---------------------------------------------------------------------------
+
+def _save_results(
+    output_path: Path,
+    all_results: list[dict],
+    model: str,
+    dataset: str,
+    rules: "RuleEngine",
+) -> None:
+    """Atomically write results with up-to-date summary stats."""
+    total        = len(all_results)
+    correct      = sum(1 for r in all_results if r.get("correct"))
+    accuracy     = correct / total if total > 0 else 0.0
+    avg_ms       = sum(r["duration_ms"] for r in all_results) / max(total, 1)
+    conv_rate    = sum(1 for r in all_results if r.get("converged")) / max(total, 1)
+    total_cost   = sum(r.get("cost_usd", 0.0) for r in all_results)
+    total_tokens = sum(r.get("input_tokens", 0) + r.get("output_tokens", 0) for r in all_results)
+    hints_used   = sum(1 for r in all_results if r.get("human_hints"))
+    run_ts       = datetime.datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ")
+
+    payload = {
+        "summary": {
+            "correct":        correct,
+            "total":          total,
+            "accuracy":       accuracy,
+            "avg_ms":         avg_ms,
+            "conv_rate":      conv_rate,
+            "total_cost_usd": round(total_cost, 6),
+            "avg_cost_usd":   round(total_cost / max(total, 1), 6),
+            "total_tokens":   total_tokens,
+            "hints_used":     hints_used,
+            "model":          model,
+            "dataset":        dataset,
+            "timestamp":      run_ts,
+            "rules":          rules.stats_summary(),
+        },
+        "tasks": all_results,
+    }
+    tmp = output_path.with_suffix(".tmp")
+    tmp.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+    os.replace(tmp, output_path)
+
+
+# ---------------------------------------------------------------------------
 # Argument parsing
 # ---------------------------------------------------------------------------
 
@@ -72,6 +120,8 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--charts-dir", default="charts")
     p.add_argument("--rules",        default="", help="Path to rules.json (default: auto)")
     p.add_argument("--max-revisions", type=int, default=None, help="Override MAX_REVISIONS (default: 5)")
+    p.add_argument("--all",      action="store_true", help="Run entire dataset (ignores --limit/--offset)")
+    p.add_argument("--resume",   action="store_true", help="Skip tasks already recorded in --output file")
     p.add_argument("--quiet",    action="store_true", help="Minimal output")
     p.add_argument("--dataset",  default="training",
                    help="Dataset name for leaderboard tracking (training/eval/test)")
@@ -115,10 +165,12 @@ async def main() -> None:
     solutions  = json.loads(solutions_path.read_text(encoding="utf-8")) if solutions_path.exists() else {}
 
     # Select tasks
+    all_ids = list(challenges.keys())
     if args.task_id:
         task_ids = [args.task_id]
+    elif args.all:
+        task_ids = all_ids
     else:
-        all_ids = list(challenges.keys())
         task_ids = all_ids[args.offset : args.offset + args.limit]
 
     # Rule engine
@@ -131,20 +183,36 @@ async def main() -> None:
     if loaded_tools:
         console.print(f"[dim]  Restored {len(loaded_tools)} tool(s) from registry: {loaded_tools}[/dim]")
 
+    # Resume: load previously completed results and skip those task IDs
+    output_path = Path(args.output)
+    all_results: list[dict] = []
+    correct_count = 0
+    completed_ids: set[str] = set()
+    if args.resume and output_path.exists():
+        existing = json.loads(output_path.read_text(encoding="utf-8"))
+        all_results = existing.get("tasks", [])
+        completed_ids = {r["task_id"] for r in all_results}
+        correct_count = sum(1 for r in all_results if r.get("correct"))
+        console.print(
+            f"[dim]  Resuming: {len(completed_ids)} tasks already done "
+            f"({correct_count} correct)[/dim]"
+        )
+        task_ids = [tid for tid in task_ids if tid not in completed_ids]
+
+    scope = "all" if args.all else f"offset={args.offset}, limit={args.limit}"
+    resume_note = f"  [dim]{len(completed_ids)} already done[/dim]" if completed_ids else ""
     console.print(Panel(
         f"[bold]ARC-AGI Python Ensemble[/bold]\n"
         f"Model:  [cyan]{DEFAULT_MODEL}[/cyan]\n"
-        f"Tasks:  {len(task_ids)} (offset={args.offset}, limit={args.limit})\n"
+        f"Tasks:  {len(task_ids)} remaining ({scope}){resume_note}\n"
         f"Flags:  human={'on' if args.human else 'off'}  "
         f"prompts={'on' if args.prompts else 'off'}  "
-        f"charts={'on' if args.charts else 'off'}\n"
+        f"charts={'on' if args.charts else 'off'}  "
+        f"resume={'on' if args.resume else 'off'}\n"
         f"Rules:  {rules.path}  {rules.stats_summary()}\n"
         f"Tools:  {tool_reg.path}  {tool_reg.stats_summary()}",
         title="Harness"
     ))
-
-    all_results: list[dict] = []
-    correct_count = 0
 
     for i, task_id in enumerate(task_ids, 1):
         task = challenges.get(task_id)
@@ -196,10 +264,13 @@ async def main() -> None:
             saved = save_all_charts(meta, expected=expected, out_dir=args.charts_dir)
             console.print(f"  Charts: {', '.join(saved)}")
 
+        # Incremental save — survives crashes; loses at most the current task
+        _save_results(output_path, all_results, DEFAULT_MODEL, args.dataset, rules)
+
     # ------------------------------------------------------------------
-    # Summary
+    # Final summary table
     # ------------------------------------------------------------------
-    total = len(all_results)
+    total        = len(all_results)
     accuracy     = correct_count / total if total > 0 else 0.0
     avg_ms       = sum(r["duration_ms"] for r in all_results) / max(total, 1)
     conv_rate    = sum(1 for r in all_results if r.get("converged")) / max(total, 1)
@@ -207,7 +278,6 @@ async def main() -> None:
     avg_cost     = total_cost / max(total, 1)
     total_tokens = sum(r.get("input_tokens", 0) + r.get("output_tokens", 0) for r in all_results)
     hints_count  = sum(1 for r in all_results if r.get("human_hints"))
-    run_ts       = datetime.datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ")
 
     table = Table(title="Run Summary")
     table.add_column("Metric")
@@ -225,27 +295,6 @@ async def main() -> None:
     table.add_row("Rules (active)",   str(rules.stats_summary()["active"]))
     table.add_row("Rules (total)",    str(rules.stats_summary()["total"]))
     console.print(table)
-
-    # Save results
-    output = {
-        "summary": {
-            "correct":       correct_count,
-            "total":         total,
-            "accuracy":      accuracy,
-            "avg_ms":        avg_ms,
-            "conv_rate":     conv_rate,
-            "total_cost_usd": round(total_cost, 6),
-            "avg_cost_usd":   round(avg_cost, 6),
-            "total_tokens":   total_tokens,
-            "hints_used":     hints_count,
-            "model":          DEFAULT_MODEL,
-            "dataset":        args.dataset,
-            "timestamp":      run_ts,
-            "rules":          rules.stats_summary(),
-        },
-        "tasks": all_results,
-    }
-    Path(args.output).write_text(json.dumps(output, indent=2), encoding="utf-8")
     console.print(f"Results written to [bold]{args.output}[/bold]")
 
 
