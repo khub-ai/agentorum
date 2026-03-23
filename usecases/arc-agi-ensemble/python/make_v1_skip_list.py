@@ -20,11 +20,11 @@ GITHUB_API = (
 OUT_FILE = Path(__file__).parent / "v1_ids.json"
 
 
-def fetch_v1_ids() -> list[str]:
+def fetch_v1_ids():
     req = urllib.request.Request(GITHUB_API, headers={"User-Agent": "arc-ensemble"})
     with urllib.request.urlopen(req, timeout=15) as resp:
         entries = json.loads(resp.read().decode())
-    ids = [e["name"].removesuffix(".json") for e in entries if e["name"].endswith(".json")]
+    ids = [e["name"][:-5] for e in entries if e["name"].endswith(".json")]
     return sorted(ids)
 
 

@@ -105,7 +105,8 @@ def _save_results(
 def parse_args() -> argparse.Namespace:
     p = argparse.ArgumentParser(description="ARC-AGI Python Ensemble Test Harness")
     p.add_argument("--data-dir", default=DEFAULT_DATA_DIR)
-    p.add_argument("--limit",    type=int, default=1)
+    p.add_argument("--limit",    type=int, default=None,
+                   help="Max tasks to run this invocation (default: 1 without --all, unlimited with --all)")
     p.add_argument("--offset",   type=int, default=0)
     p.add_argument("--task-id", "--task", dest="task_id", default="")
     p.add_argument("--output",   default=DEFAULT_OUTPUT)
@@ -172,9 +173,10 @@ async def main() -> None:
     if args.task_id:
         task_ids = [args.task_id]
     elif args.all:
-        task_ids = all_ids
+        task_ids = all_ids  # --limit applied after filtering (below)
     else:
-        task_ids = all_ids[args.offset : args.offset + args.limit]
+        limit = args.limit if args.limit is not None else 1
+        task_ids = all_ids[args.offset : args.offset + limit]
 
     # Skip-IDs filter (e.g. to exclude v1 tasks and run v2-only)
     skip_ids: set[str] = set()
@@ -222,7 +224,14 @@ async def main() -> None:
         )
         task_ids = [tid for tid in task_ids if tid not in completed_ids]
 
-    scope = "all" if args.all else f"offset={args.offset}, limit={args.limit}"
+    # Apply --limit as a per-run cap after all filtering
+    if args.all and args.limit is not None:
+        task_ids = task_ids[:args.limit]
+
+    limit_display = args.limit if args.limit is not None else 1
+    scope = "all" if args.all else f"offset={args.offset}, limit={limit_display}"
+    if args.all and args.limit is not None:
+        scope = f"all, capped at {args.limit} this run"
     resume_note = f"  [dim]{len(completed_ids)} already done[/dim]" if completed_ids else ""
     console.print(Panel(
         f"[bold]ARC-AGI Python Ensemble[/bold]\n"
