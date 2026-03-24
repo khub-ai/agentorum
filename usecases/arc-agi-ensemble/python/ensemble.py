@@ -22,6 +22,7 @@ from grid_tools import Grid, grids_equal, summarize
 from metadata import TaskMetadata, SolverEntry, MediatorDecision, compute_outcome, print_task_summary
 from agents import (
     run_solvers_round1, run_mediator_synthesize, run_mediator_revise,
+    run_mediator_extract_preference,
     run_tool_generator, run_tool_generator_fix, call_agent,
     format_task_for_prompt, DEFAULT_MODEL, DEFAULT_SOLVERS,
     reset_cost_tracker, get_cost_tracker,
@@ -219,6 +220,7 @@ async def run_ensemble(
         log("  No rules matched.", force=True)
 
     rules_prompt_section = rule_engine.format_fired_rules_for_prompt(matched_rules)
+    preference_priors_section = rule_engine.format_preference_rules_for_solver()
 
     if human_in_loop:
         disp.show_rule_matches(matched_rules, rule_engine)
@@ -242,6 +244,7 @@ async def run_ensemble(
         prior_knowledge=rules_prompt_section,
         human_hypothesis=human_hypothesis,
         solver_ids=solver_ids,
+        preference_priors=preference_priors_section,
     )
     meta.solvers_r1 = r1_entries
     log(f"  Done in {time.time()-t_r1:.1f}s", force=True)
@@ -254,7 +257,7 @@ async def run_ensemble(
     # ------------------------------------------------------------------
     # Round 2 — MEDIATOR synthesizes pseudo-code
     # ------------------------------------------------------------------
-    human_r2_insight = ""
+    human_r2_insight = human_insight  # use CLI --insight even without --human
     if human_in_loop:
         human_r2_insight = disp.human_post_hypotheses_checkpoint(prefill=human_insight)
 
@@ -305,7 +308,7 @@ async def run_ensemble(
 
         trace_text = format_execution_trace(exec_result)
 
-        human_revision_insight = ""
+        human_revision_insight = human_revision_hint  # use CLI --revision-hint even without --human
         if human_in_loop:
             human_revision_insight = disp.human_revision_checkpoint(attempt, prefill=human_revision_hint)
 
@@ -382,6 +385,36 @@ async def run_ensemble(
         rule_changes = rule_engine.parse_mediator_rule_updates(mediator_text, task_id)
         if rule_changes:
             log(f"  Rule updates: {len(rule_changes)} rule(s) created/modified", force=True)
+
+    # ------------------------------------------------------------------
+    # Preference rule extraction — fires when a human insight corrected
+    # a wrong hypothesis and the corrected approach succeeded.
+    #
+    # This is a (wrong_hypothesis → correction → success) training event.
+    # MEDIATOR distills it into a preference rule: a soft prior about
+    # *which hypothesis property to prefer* when evidence is ambiguous.
+    # The preference does not hard-code the answer — it biases the solver
+    # toward human-natural reasoning properties (topology, perceptual
+    # grouping, relative position) over computationally-easy but
+    # non-human-natural ones (exact cell count, bounding box area).
+    # ------------------------------------------------------------------
+    if success and human_insight:
+        log("  Correction event detected: extracting preference rule...", force=True)
+        wrong_hyps = [e.rule[:300] for e in r1_entries]
+        correct_approach = (mediator_text or "")[:600]
+        existing_prefs = rule_engine.format_preference_rules_for_solver()
+        pref_text = await run_mediator_extract_preference(
+            task_id=task_id,
+            wrong_hypotheses=wrong_hyps,
+            human_insight=human_insight,
+            correct_approach=correct_approach,
+            existing_preference_rules=existing_prefs,
+        )
+        pref_changes = rule_engine.parse_mediator_rule_updates(pref_text, task_id)
+        if pref_changes:
+            pref_ids = [r["id"] for r in pref_changes]
+            log(f"  Preference rules created: {pref_ids}", force=True)
+            rule_changes.extend(pref_changes)
 
     # Auto-deprecate consistently failing rules
     deprecated = rule_engine.auto_deprecate()

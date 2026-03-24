@@ -84,6 +84,52 @@ Prefilled hints (`--hypothesis`, `--insight`, `--revision-hint`) inject at check
 
 **Current guidance**: provide no hints by default. Only intervene if MEDIATOR's hypothesis is clearly wrong after Round 1 or fails all demos across multiple revisions.
 
+### 7. Human-natural reasoning preference
+
+ARC-AGI-V2 evaluation has an important property: when multiple transformation rules fit all demo pairs equally well, the one that is **preferred by humans** is considered correct. This systematically excludes solutions that are computationally convenient but unlikely to be considered by a human solver — e.g. "recolor objects where bounding box area > 12" vs "recolor objects with a hole in them."
+
+The solver currently has no built-in preference for human-natural over computationally-natural hypotheses. This creates a failure mode: the solver picks the hypothesis that is easiest to express as code, which often differs from the one a human would reach first.
+
+**Human-natural properties** (humans perceive these first):
+- Topological structure (number of enclosed holes, connectedness, shape identity)
+- Perceptual grouping (proximity, color, orientation)
+- Relative position (left/right of divider, inside/outside boundary)
+- Symmetry and reflection
+
+**Non-human-natural properties** (easy to compute, hard to eyeball):
+- Exact pixel/cell count
+- Bounding box area or aspect ratio
+- Lexicographic ordering of color values
+
+This principle cannot be fully solved by hardcoding a preference list — such a list would be incomplete, potentially wrong, and wouldn't transfer to new puzzle categories. Instead, preferences are **learned from corrections** (see §8).
+
+### 8. Preference rules: learning from corrections
+
+When the system gets a puzzle wrong and a human correction succeeds, that is a training event:
+
+```
+wrong_hypothesis → human insight → correct_hypothesis → success
+```
+
+The system extracts a **preference rule** from this triple: not a solution for the specific puzzle, but a general reasoning bias about *which hypothesis property to prefer* when evidence is ambiguous.
+
+**Preference rules vs task rules**:
+
+| Property | Task rule | Preference rule |
+|---|---|---|
+| Encodes | How to solve puzzle type X | Which hypothesis property to prefer |
+| Applied | Per-puzzle (matched in Round 0) | Every puzzle (universal soft prior) |
+| Created by | MEDIATOR after solving | MEDIATOR after correction event |
+| Triggered by | Normal task completion | `--insight` used + task succeeded |
+| Overridable | By stronger matching rules | By demo evidence or future corrections |
+
+**Key design constraints**:
+- Preferences are **soft priors**, not mandates. The solver is explicitly told: "demo evidence overrides a prior." A future puzzle can provide counter-evidence that causes the prior to be revised.
+- Preferences are **not hardcoded by the developers**. They emerge from observed correction events. A developer-imposed preference list would embed developer assumptions (potentially wrong) and wouldn't generalize.
+- Preferences **accumulate and can be revised**. If a preference rule leads the solver astray on a future puzzle, that failure generates a correction that specializes or contradicts the prior — just as a human refines intuitions from experience.
+
+**Long-term alignment significance**: This mechanism models how human preferences are transferred to an AI system — not by explicit rule specification, but by observing corrections and learning what the corrector cares about. The same architecture that learns "prefer topology over pixel count for ARC-AGI" can in principle learn "prefer fairness over efficiency in resource allocation" from social corrections. The goal is a system that models the *cognitive process* a human uses, not just a lookup table of known preferences.
+
 ---
 
 ## File Map
@@ -111,6 +157,12 @@ Prefilled hints (`--hypothesis`, `--insight`, `--revision-hint`) inject at check
 
 ### Human hint trust
 MEDIATOR currently trusts human hints unconditionally. A wrong hint is worse than no hint because MEDIATOR spends revision budget trying to reconcile the hint with the demos. **Future**: give MEDIATOR explicit permission to reject or downweight a human hint if it contradicts the demo evidence.
+
+### Preference rule quality
+Preference rules are extracted by MEDIATOR from correction events, which means their quality depends on MEDIATOR's ability to generalize correctly from a single example. A rule extracted too specifically will fail to transfer; a rule extracted too broadly may suppress correct hypotheses. **Future**: validate preference rules by re-running past puzzles with and without the new prior; only retain rules that improve accuracy on held-out tasks.
+
+### Solver property uniqueness blindness
+The solver does not currently reason about whether a hypothesized property *uniquely* discriminates the objects that change vs those that don't. For example, if objects differ in both size AND topology, the solver may latch onto size because it's more obvious to describe — but topology might be the discriminating property. **Future**: add a solver reasoning step that enumerates all observable differences and asks "which of these properties is *unique* to the changed objects?" before committing to a hypothesis.
 
 ### Rule matching reliability
 Rule matching uses an LLM call (MEDIATOR reads all rules as text and decides which apply). This can miss matches or produce false positives. **Future**: structured condition predicates (object count, color set, grid shape, transformation category) that can be matched programmatically before the LLM pass.

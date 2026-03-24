@@ -149,8 +149,16 @@ class RuleEngine:
         return None
 
     def active_rules(self) -> list[dict]:
-        """Return rules that are not deprecated."""
+        """Return all rules that are not deprecated (both task and preference types)."""
         return [r for r in self.rules if r.get("status", "active") == "active"]
+
+    def active_task_rules(self) -> list[dict]:
+        """Return active task rules (matched per-puzzle in Round 0)."""
+        return [r for r in self.active_rules() if r.get("rule_type", "task") == "task"]
+
+    def active_preference_rules(self) -> list[dict]:
+        """Return active preference rules (soft priors injected for every puzzle)."""
+        return [r for r in self.active_rules() if r.get("rule_type") == "preference"]
 
     def stats_summary(self) -> dict[str, Any]:
         active = self.active_rules()
@@ -192,6 +200,7 @@ class RuleEngine:
         source_task: str = "",
         tags: list[str] | None = None,
         lineage: dict | None = None,
+        rule_type: str = "task",
     ) -> dict:
         """
         Create a new rule and persist it.
@@ -206,6 +215,14 @@ class RuleEngine:
                          {"type": "new" | "generalized" | "specialized" | "merged",
                           "parent_ids": ["r_001", ...],
                           "reason": "why this derivation was needed"}
+            rule_type:   "task" (default) or "preference".
+                         - "task" rules encode how to solve a category of puzzle.
+                           They are matched per-puzzle in Round 0 and injected as prior
+                           knowledge when the condition matches.
+                         - "preference" rules encode *which hypothesis property to prefer*
+                           when multiple plausible hypotheses exist. They are learned from
+                           correction events (wrong hypothesis → human insight → success)
+                           and injected as soft priors for every puzzle regardless of match.
 
         Returns:
             The newly created rule dict.
@@ -214,6 +231,7 @@ class RuleEngine:
             "id": self._next_id(),
             "condition": condition,
             "action": action,
+            "rule_type": rule_type,
             "stats": {"fired": 0, "succeeded": 0, "failed": 0},
             "source": source,
             "source_task": source_task,
@@ -368,10 +386,11 @@ class RuleEngine:
 
     def format_rules_for_matching(self) -> str:
         """
-        Build a prompt fragment listing all active rules for the LLM to evaluate.
+        Build a prompt fragment listing active task rules for the LLM to evaluate.
+        Only task rules are matched per-puzzle; preference rules are applied globally.
         Returns a numbered list the LLM can reference by ID.
         """
-        active = self.active_rules()
+        active = self.active_task_rules()
         if not active:
             return "(no rules in the rule base)"
         lines = []
@@ -382,6 +401,33 @@ class RuleEngine:
                 f"  CONDITION: {r['condition']}\n"
                 f"  ACTION: {r['action']}"
             )
+        return "\n".join(lines)
+
+    def format_preference_rules_for_solver(self) -> str:
+        """
+        Build a prompt section listing preference rules as soft priors for solvers.
+
+        Preference rules are learned from correction events: when a solver's initial
+        hypothesis was wrong, a human provided an insight, and the corrected approach
+        succeeded. They encode *which hypothesis property to prefer* when multiple
+        plausible interpretations exist — not how to solve a specific puzzle type.
+
+        Returned section is injected into every solver prompt regardless of puzzle match.
+        Solvers are explicitly told these are suggestions, not mandates.
+        """
+        prefs = self.active_preference_rules()
+        if not prefs:
+            return ""
+        lines = [
+            "## Reasoning Preferences (soft priors — treat as suggestions, not rules)",
+            "The system has learned these preferences from past correction events.",
+            "When multiple hypotheses seem equally valid based on demos alone, prefer the one",
+            "that aligns with these priors. Demo evidence always overrides a prior.\n",
+        ]
+        for r in prefs:
+            lines.append(f"- **[{r['id']}]** {r['action']}")
+            if r.get("source_task"):
+                lines.append(f"  *(learned from task {r['source_task']})*")
         return "\n".join(lines)
 
     def format_fired_rules_for_prompt(self, matches: list[RuleMatch],
@@ -512,6 +558,8 @@ class RuleEngine:
                     if not cond or not ract:
                         continue
 
+                    rule_type = upd.get("rule_type", "task")
+
                     if act == "generalize" and parent:
                         r = self.generalize_rule(parent, cond, ract, reason,
                                                   source_task=task_id, tags=tags)
@@ -524,7 +572,8 @@ class RuleEngine:
                                               source_task=task_id, tags=tags)
                     else:
                         r = self.add_rule(cond, ract, source="mediator",
-                                           source_task=task_id, tags=tags)
+                                           source_task=task_id, tags=tags,
+                                           rule_type=rule_type)
                     created.append(r)
             except (json.JSONDecodeError, Exception):
                 continue
@@ -567,8 +616,9 @@ class RuleEngine:
             parts.append("### Existing rules (check before creating new ones)\n")
             for r in all_active:
                 sr = self._success_rate(r)
+                rtype = r.get("rule_type", "task")
                 parts.append(
-                    f"- [{r['id']}] tags={r.get('tags',[])} success={sr:.0%} fired={r['stats']['fired']}x\n"
+                    f"- [{r['id']}] type={rtype} tags={r.get('tags',[])} success={sr:.0%} fired={r['stats']['fired']}x\n"
                     f"  CONDITION: {r['condition']}\n"
                     f"  ACTION: {r['action'][:120]}"
                 )

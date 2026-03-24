@@ -267,11 +267,16 @@ async def run_solvers_round1(
     prior_knowledge: str = "",
     human_hypothesis: str = "",
     solver_ids: list[str] | None = None,
+    preference_priors: str = "",
 ) -> list[SolverEntry]:
     """Run solvers in parallel for Round 1 (text-only hypotheses).
 
     solver_ids defaults to DEFAULT_SOLVERS. Pass a different list to run
     multiple specialist solvers (e.g. for hard puzzles).
+
+    preference_priors: optional soft-prior section from preference rules.
+    These are injected separately from task-specific prior_knowledge so the
+    solver can distinguish learned preferences from matched task rules.
     """
     if solver_ids is None:
         solver_ids = DEFAULT_SOLVERS
@@ -280,13 +285,16 @@ async def run_solvers_round1(
     knowledge_section = (
         f"\n## Prior Knowledge\n{prior_knowledge}\n" if prior_knowledge.strip() else ""
     )
+    preference_section = (
+        f"\n{preference_priors}\n" if preference_priors.strip() else ""
+    )
     human_section = (
         f"\n## Human Hypothesis\n{human_hypothesis}\n"
         "(A human member of the ensemble has offered this observation -- "
         "consider it, but form your own independent analysis.)\n"
         if human_hypothesis.strip() else ""
     )
-    user_msg = f"{knowledge_section}{human_section}\n{task_text}\n\nPlease analyze this task and propose your transformation rule."
+    user_msg = f"{knowledge_section}{preference_section}{human_section}\n{task_text}\n\nPlease analyze this task and propose your transformation rule."
 
     async def run_one(agent_id: str) -> SolverEntry:
         text, ms = await call_agent(agent_id, user_msg)
@@ -406,6 +414,83 @@ async def run_mediator_revise(
     steps = parse_pseudocode(text)
 
     return text, steps, ms
+
+
+# ---------------------------------------------------------------------------
+# Preference rule extraction — called when insight + success
+# ---------------------------------------------------------------------------
+
+async def run_mediator_extract_preference(
+    task_id: str,
+    wrong_hypotheses: list[str],
+    human_insight: str,
+    correct_approach: str,
+    existing_preference_rules: str = "",
+) -> str:
+    """
+    After a correction event (wrong hypothesis → human insight → success), ask
+    MEDIATOR to extract a preference rule capturing *what to prefer in future*.
+
+    A preference rule is NOT about how to solve a specific puzzle type.
+    It encodes a *reasoning bias*: given ambiguous evidence, prefer hypothesis
+    properties that correlate with correct human-natural interpretations.
+
+    Args:
+        task_id:           The task that was corrected.
+        wrong_hypotheses:  Solver hypotheses that were initially wrong.
+        human_insight:     The corrective hint provided by the human.
+        correct_approach:  The transformation approach that ultimately worked.
+        existing_preference_rules: Current preference rules (to avoid duplication).
+
+    Returns:
+        Raw MEDIATOR response text (caller parses rule_updates from it).
+    """
+    existing_section = (
+        f"\n## Existing preference rules (avoid duplicating these)\n{existing_preference_rules}\n"
+        if existing_preference_rules.strip() else ""
+    )
+
+    user_msg = (
+        f"## Correction event on task: {task_id}\n\n"
+        f"### What the solver initially proposed (wrong):\n"
+        + "\n".join(f"- {h}" for h in wrong_hypotheses)
+        + f"\n\n### Human insight that corrected it:\n{human_insight}\n\n"
+        f"### Approach that ultimately succeeded:\n{correct_approach}\n"
+        f"{existing_section}\n"
+        "## Your task\n\n"
+        "Extract a **preference rule** from this correction event.\n\n"
+        "A preference rule captures *why the solver's initial hypothesis was "
+        "systematically wrong* and *what reasoning property it should prefer* in the future "
+        "when faced with similar ambiguity.\n\n"
+        "Key properties of a good preference rule:\n"
+        "- It describes a *general reasoning bias*, not a solution for this specific puzzle\n"
+        "- It names the property to prefer (e.g. topological structure, perceptual grouping, "
+        "  relative position) vs the property to de-prioritize (e.g. exact pixel count, "
+        "  bounding box area, lexicographic ordering)\n"
+        "- It explains *why* the preferred property is more human-natural\n"
+        "- It is falsifiable: future puzzles could provide counter-evidence\n"
+        "- The `condition` field should describe the situation where this bias applies "
+        "  (e.g. 'when multiple objects could be classified by size OR by topology')\n"
+        "- The `rule_action` field should state the preference: "
+        "  'prefer X over Y because humans perceive X first/more reliably'\n\n"
+        "Emit a rule_updates JSON block with `rule_type: \"preference\"`:\n"
+        "```json\n"
+        '{"rule_updates": [\n'
+        '  {\n'
+        '    "action": "new",\n'
+        '    "rule_type": "preference",\n'
+        '    "condition": "[preference] When ...",\n'
+        '    "rule_action": "Prefer ... over ... because ...",\n'
+        '    "tags": ["preference", "...relevant-category..."]\n'
+        '  }\n'
+        "]}\n"
+        "```\n"
+        "Omit the block if no generalizable preference can be extracted "
+        "(e.g. the correction was task-specific and unlikely to transfer)."
+    )
+
+    text, _ms = await call_agent("MEDIATOR", user_msg, max_tokens=1024)
+    return text
 
 
 # ---------------------------------------------------------------------------

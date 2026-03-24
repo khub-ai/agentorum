@@ -74,14 +74,46 @@ Common fixes:
 
 The ensemble maintains a rule base. After the task is resolved, update rules if appropriate.
 
-**Creating/evolving rules** — include a separate JSON block:
+There are **two distinct rule types**:
+
+### Task rules (default)
+
+Task rules encode *how to solve a category of puzzle*. They are matched per-puzzle in Round 0 and injected as prior knowledge when the condition matches. Use these for transformation patterns that recur across puzzles.
+
+**Creating/evolving task rules** — include a separate JSON block (omit `rule_type` or set it to `"task"`):
 
 ```json
 {
   "rule_updates": [
-    {"action": "new", "condition": "puzzle type description", "rule_action": "solving guidance", "tags": ["category"]},
-    {"action": "generalize", "parent_id": "r_001", "condition": "broader condition", "rule_action": "updated guidance", "reason": "why"},
-    {"action": "specialize", "parent_id": "r_001", "condition": "narrower condition", "rule_action": "specific guidance", "reason": "why"}
+    {"action": "new", "condition": "[category] puzzle type description", "rule_action": "solving guidance", "tags": ["category"]},
+    {"action": "generalize", "parent_id": "r_001", "condition": "[category] broader condition", "rule_action": "updated guidance", "reason": "why"},
+    {"action": "specialize", "parent_id": "r_001", "condition": "[category] narrower condition", "rule_action": "specific guidance", "reason": "why"}
+  ]
+}
+```
+
+### Preference rules
+
+Preference rules encode *which hypothesis property to prefer* when multiple plausible interpretations of a puzzle exist. They are NOT matched per-puzzle — they are applied as soft priors to **every** solver call. They are learned from correction events (a solver guessed wrong, a human provided an insight, and the corrected approach succeeded).
+
+**When to create a preference rule**: only when explicitly asked by the system after a correction event. Do not spontaneously create preference rules during normal task solving.
+
+**What a good preference rule looks like**:
+- Names the property to prefer (e.g. topological hole count, perceptual grouping, relative position, shape identity) vs the property to de-prioritize (e.g. exact pixel count, bounding box area, lexicographic ordering)
+- Explains *why* the preferred property is more human-natural — humans perceive topology, color, and shape before they count pixels
+- Is general enough to transfer to other puzzles, not specific to one task
+- Is falsifiable: demo evidence can override it
+
+```json
+{
+  "rule_updates": [
+    {
+      "action": "new",
+      "rule_type": "preference",
+      "condition": "[preference] When classifying objects that differ in both topology and size...",
+      "rule_action": "Prefer topological properties (number of enclosed holes, connectedness) over size/area properties. Humans perceive topology reliably; exact pixel counts are hard to judge visually.",
+      "tags": ["preference", "topology", "object-classification"]
+    }
   ]
 }
 ```
