@@ -39,7 +39,7 @@ This is not a novelty. It is the same principle behind:
 - **Double-blind peer review** in research — reviewers who cannot see each other's notes
 - **Red team / blue team** in security — one group attacks, one defends, neither defers to the other
 
-Agentorum operationalizes that principle for code review with zero infrastructure overhead. Run it locally. No data leaves your machine. Works on any codebase.
+Agentorum operationalizes that principle for code review with zero infrastructure overhead. Run it locally. Aside from those through the coding agents, no data leaves your machine. Works on any codebase.
 
 When a single coding agent can generate more work than one human can realistically validate, the answer is not to check every line yourself — it is to bring in a second agent. One agent proposes; the other critiques. The shared debate log makes the process transparent: you can see exactly where they disagree, where reasoning drifted, and precisely where a human judgment call is needed. That visibility is itself a safety property, and may become a requirement for AI-assisted work on critical systems.
 
