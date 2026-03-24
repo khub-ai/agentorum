@@ -1,6 +1,6 @@
-# Multi-Agent Code Review — Claude Code + OpenAI Codex
+# Multi-Agent Code Software Development
 
-> **Two AI coding agents. One codebase. Zero shared reasoning.**
+> **Many AI coding agents. One codebase. Greater productivity and quality.**
 > When they agree, the finding is high-confidence. When they disagree, that is your flag to investigate.
 
 ---
@@ -11,7 +11,7 @@ Most AI code review tools give you one model's opinion. This use case runs **Cla
 
 The result is a review process that surfaces bugs, design problems, and edge cases that a single AI (or a single human reviewer) routinely misses — because independent review is structurally better than one review, every time.
 
-You submit code. Both agents read it and respond. They challenge each other. You steer the conversation. You get a prioritized list of issues you can act on immediately.
+You point both agent to your local code. Both agents read it and respond. They challenge each other. You steer the conversation. You get a prioritized list of issues you can act on immediately.
 
 ---
 
@@ -23,7 +23,7 @@ You submit code. Both agents read it and respond. They challenge each other. You
 - **Solo developers and freelancers** who rarely have a peer reviewer available but want the rigor of a real code review process
 - **Teams adopting AI tooling** who want to validate that their AI-generated code actually holds up under scrutiny
 
-You do not need to be an AI expert. You paste code, read the debate, and act on the findings. That is the full workflow.
+You do not need to be an AI expert. You set up the environment and steer the agents to chat locally to each other, read the debate, and act on the findings. That is the full workflow.
 
 ---
 
