@@ -333,6 +333,172 @@ COLOR_NAMES = {
 }
 
 
+def barrier_beam(grid: Grid, background: int = 0, **kwargs) -> Grid:
+    """
+    8-barrier (full row or column) divides the grid into a 4-side and a 2-side.
+    For each row/col that contains 4-cells:
+      1. Original 4 positions → 3 (shadow marker)
+      2. Fill between 4s and barrier with 4 (shoot toward barrier)
+      3. Pack the 2-cells for that row/col flush against the FAR EDGE,
+         fill between barrier and packed 2s with 8
+    Rows/cols with no 4s are unchanged.
+    Works for both vertical and horizontal barriers, and for 4s on either side.
+    """
+    rows = len(grid)
+    cols = len(grid[0]) if rows else 0
+    result = [row[:] for row in grid]
+
+    full_col_8 = [c for c in range(cols) if all(grid[r][c] == 8 for r in range(rows))]
+    full_row_8 = [r for r in range(rows) if all(grid[r][c] == 8 for c in range(cols))]
+
+    if full_col_8:
+        barrier = full_col_8[0]
+        four_left = any(grid[r][c] == 4 for r in range(rows) for c in range(barrier))
+        for r in range(rows):
+            if four_left:
+                fours = [c for c in range(barrier) if grid[r][c] == 4]
+                twos  = [c for c in range(barrier + 1, cols) if grid[r][c] == 2]
+                if not fours:
+                    continue
+                for c in fours:
+                    result[r][c] = 3
+                for c in range(max(fours) + 1, barrier):
+                    result[r][c] = 4
+                pack = cols - len(twos)
+                for c in range(barrier + 1, pack):
+                    result[r][c] = 8
+                for i in range(len(twos)):
+                    result[r][pack + i] = 2
+            else:
+                fours = [c for c in range(barrier + 1, cols) if grid[r][c] == 4]
+                twos  = [c for c in range(barrier) if grid[r][c] == 2]
+                if not fours:
+                    continue
+                for c in fours:
+                    result[r][c] = 3
+                for c in range(barrier + 1, min(fours)):
+                    result[r][c] = 4
+                pack = len(twos)
+                for c in range(pack, barrier):
+                    result[r][c] = 8
+                for i in range(len(twos)):
+                    result[r][i] = 2
+
+    elif full_row_8:
+        barrier = full_row_8[0]
+        four_above = any(grid[r][c] == 4 for r in range(barrier) for c in range(cols))
+        for c in range(cols):
+            if four_above:
+                fours = [r for r in range(barrier) if grid[r][c] == 4]
+                twos  = [r for r in range(barrier + 1, rows) if grid[r][c] == 2]
+                if not fours:
+                    continue
+                for r in fours:
+                    result[r][c] = 3
+                for r in range(max(fours) + 1, barrier):
+                    result[r][c] = 4
+                pack = rows - len(twos)
+                for r in range(barrier + 1, pack):
+                    result[r][c] = 8
+                for i in range(len(twos)):
+                    result[pack + i][c] = 2
+            else:
+                fours = [r for r in range(barrier + 1, rows) if grid[r][c] == 4]
+                twos  = [r for r in range(barrier) if grid[r][c] == 2]
+                if not fours:
+                    continue
+                for r in fours:
+                    result[r][c] = 3
+                for r in range(barrier + 1, min(fours)):
+                    result[r][c] = 4
+                pack = len(twos)
+                for r in range(pack, barrier):
+                    result[r][c] = 8
+                for i in range(len(twos)):
+                    result[i][c] = 2
+
+    return result
+
+
+def draw_lines_and_replace_intersecting_rects(
+    grid: Grid, line_color: int = 1, rect_color: int = 2, **kwargs
+) -> Grid:
+    """
+    1-markers on opposite edges define lines; convert adjacent/intersecting
+    2-rectangles to 1s and draw the full lines.
+
+    Line detection (opposite-edge pairing only):
+    - Horizontal line at row R: markers at (R, 0) AND (R, ncols-1)
+    - Vertical line at col C:   markers at (0, C) AND (nrows-1, C)
+
+    Conversion rule: a connected rect_color component is converted entirely
+    to line_color if ANY line row r satisfies r0-1 <= r <= r1+1, OR any
+    line col c satisfies c0-1 <= c <= c1+1 (adjacent counts, not just
+    passing through).
+    """
+    from collections import deque
+    rows = len(grid)
+    cols = len(grid[0]) if rows else 0
+    if not rows or not cols:
+        return [row[:] for row in grid]
+
+    lc = kwargs.get('line_color', line_color)
+    rc = kwargs.get('rect_color', rect_color)
+
+    # Collect marker positions
+    by_row = {}
+    by_col = {}
+    for r in range(rows):
+        for c in range(cols):
+            if grid[r][c] == lc:
+                by_row.setdefault(r, set()).add(c)
+                by_col.setdefault(c, set()).add(r)
+
+    # Opposite-edge pairing
+    h_lines = {r for r, cs in by_row.items() if 0 in cs and cols - 1 in cs}
+    v_lines = {c for c, rs in by_col.items() if 0 in rs and rows - 1 in rs}
+
+    # Find connected components of rect_color
+    visited = [[False] * cols for _ in range(rows)]
+    components = []
+    for r0 in range(rows):
+        for c0 in range(cols):
+            if grid[r0][c0] == rc and not visited[r0][c0]:
+                comp = []
+                q = deque([(r0, c0)])
+                visited[r0][c0] = True
+                while q:
+                    cr, cc = q.popleft()
+                    comp.append((cr, cc))
+                    for dr, dc in [(-1,0),(1,0),(0,-1),(0,1)]:
+                        nr, nc = cr+dr, cc+dc
+                        if 0<=nr<rows and 0<=nc<cols and not visited[nr][nc] and grid[nr][nc]==rc:
+                            visited[nr][nc] = True
+                            q.append((nr, nc))
+                rs = [x for x, _ in comp]; cs2 = [x for _, x in comp]
+                components.append((comp, min(rs), max(rs), min(cs2), max(cs2)))
+
+    # Determine which components to convert (within 1 cell of any line)
+    convert = set()
+    for comp, rmin, rmax, cmin, cmax in components:
+        if (any(rmin-1 <= lr <= rmax+1 for lr in h_lines) or
+                any(cmin-1 <= lc2 <= cmax+1 for lc2 in v_lines)):
+            for cell in comp:
+                convert.add(cell)
+
+    # Build output
+    result = [row[:] for row in grid]
+    for r in h_lines:
+        for c in range(cols):
+            result[r][c] = lc
+    for c in v_lines:
+        for r in range(rows):
+            result[r][c] = lc
+    for r, c in convert:
+        result[r][c] = lc
+    return result
+
+
 def unshear_right(grid: Grid, background: int = 0, **kwargs) -> Grid:
     """
     One-step de-shear: for each color group, keep the bottom row fixed
