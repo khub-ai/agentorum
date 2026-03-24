@@ -361,10 +361,12 @@ async def run_ensemble(
     meta.dataset          = dataset
     meta.human_hints_used = _human_hints_used
     meta.tools_generated  = list(dict.fromkeys(_tools_generated))  # deduplicated
-    meta.input_tokens     = ct.input_tokens
-    meta.output_tokens    = ct.output_tokens
-    meta.api_calls        = ct.api_calls
-    meta.cost_usd         = round(ct.cost_usd(), 6)
+    meta.input_tokens          = ct.input_tokens
+    meta.cache_creation_tokens = ct.cache_creation_tokens
+    meta.cache_read_tokens     = ct.cache_read_tokens
+    meta.output_tokens         = ct.output_tokens
+    meta.api_calls             = ct.api_calls
+    meta.cost_usd              = round(ct.cost_usd(), 6)
 
     success = meta.correct or False
 

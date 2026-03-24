@@ -2,6 +2,7 @@
 
 All runs use `claude-sonnet-4-6`. "No hints" means `--hypothesis/--insight/--revision-hint` flags were not passed.
 Tool generation uses demo-verified self-correction (up to 3 attempts per tool).
+Each entry includes a **Timestamp** field (UTC, ISO-8601) recording when the task was run.
 
 ---
 

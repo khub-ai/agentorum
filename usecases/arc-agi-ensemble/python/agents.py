@@ -101,8 +101,12 @@ SHOW_PROMPTS: bool = False
 # ---------------------------------------------------------------------------
 
 # Sonnet 4.6 pricing (USD per token)
-_PRICE_INPUT_PER_TOKEN  = 3.00  / 1_000_000
-_PRICE_OUTPUT_PER_TOKEN = 15.00 / 1_000_000
+# Verify against https://www.anthropic.com/pricing if estimates diverge from Anthropic invoices.
+# Anthropic auto-caches repeated system prompts; cache_creation costs 25% more, cache_read 90% less.
+_PRICE_INPUT_PER_TOKEN          = 3.00  / 1_000_000   # standard input
+_PRICE_CACHE_CREATION_PER_TOKEN = 3.75  / 1_000_000   # cache write (25% surcharge)
+_PRICE_CACHE_READ_PER_TOKEN     = 0.30  / 1_000_000   # cache hit  (90% discount)
+_PRICE_OUTPUT_PER_TOKEN         = 15.00 / 1_000_000   # output
 
 
 class CostTracker:
@@ -112,25 +116,36 @@ class CostTracker:
         self.reset()
 
     def reset(self) -> None:
-        self.input_tokens:  int = 0
-        self.output_tokens: int = 0
-        self.api_calls:     int = 0
+        self.input_tokens:          int = 0
+        self.cache_creation_tokens: int = 0
+        self.cache_read_tokens:     int = 0
+        self.output_tokens:         int = 0
+        self.api_calls:             int = 0
 
-    def add(self, input_tokens: int, output_tokens: int) -> None:
-        self.input_tokens  += input_tokens
-        self.output_tokens += output_tokens
-        self.api_calls     += 1
+    def add(self, input_tokens: int, output_tokens: int,
+            cache_creation: int = 0, cache_read: int = 0) -> None:
+        self.input_tokens          += input_tokens
+        self.cache_creation_tokens += cache_creation
+        self.cache_read_tokens     += cache_read
+        self.output_tokens         += output_tokens
+        self.api_calls             += 1
 
     def cost_usd(self) -> float:
-        return (self.input_tokens  * _PRICE_INPUT_PER_TOKEN +
-                self.output_tokens * _PRICE_OUTPUT_PER_TOKEN)
+        return (
+            self.input_tokens          * _PRICE_INPUT_PER_TOKEN +
+            self.cache_creation_tokens * _PRICE_CACHE_CREATION_PER_TOKEN +
+            self.cache_read_tokens     * _PRICE_CACHE_READ_PER_TOKEN +
+            self.output_tokens         * _PRICE_OUTPUT_PER_TOKEN
+        )
 
     def to_dict(self) -> dict:
         return {
-            "input_tokens":  self.input_tokens,
-            "output_tokens": self.output_tokens,
-            "api_calls":     self.api_calls,
-            "cost_usd":      round(self.cost_usd(), 6),
+            "input_tokens":          self.input_tokens,
+            "cache_creation_tokens": self.cache_creation_tokens,
+            "cache_read_tokens":     self.cache_read_tokens,
+            "output_tokens":         self.output_tokens,
+            "api_calls":             self.api_calls,
+            "cost_usd":              round(self.cost_usd(), 6),
         }
 
 
@@ -177,8 +192,13 @@ async def call_agent(
             duration_ms = int((time.time() - t0) * 1000)
             text = response.content[0].text if response.content else ""
             if response.usage:
-                _cost_tracker.add(response.usage.input_tokens,
-                                  response.usage.output_tokens)
+                u = response.usage
+                _cost_tracker.add(
+                    u.input_tokens,
+                    u.output_tokens,
+                    cache_creation=getattr(u, "cache_creation_input_tokens", 0) or 0,
+                    cache_read=getattr(u, "cache_read_input_tokens", 0) or 0,
+                )
             return text, duration_ms
         except anthropic.RateLimitError:
             if attempt < max_retries - 1:
@@ -583,7 +603,12 @@ async def run_tool_generator(tool_spec: dict, task: dict | None = None) -> tuple
     duration_ms = int((time.time() - t0) * 1000)
     raw = response.content[0].text if response.content else ""
     if response.usage:
-        _cost_tracker.add(response.usage.input_tokens, response.usage.output_tokens)
+        u = response.usage
+        _cost_tracker.add(
+            u.input_tokens, u.output_tokens,
+            cache_creation=getattr(u, "cache_creation_input_tokens", 0) or 0,
+            cache_read=getattr(u, "cache_read_input_tokens", 0) or 0,
+        )
 
     # Extract code from ```python block
     match = re.search(r"```python\s*(.*?)\s*```", raw, re.DOTALL)
@@ -663,7 +688,12 @@ async def run_tool_generator_fix(
     duration_ms = int((time.time() - t0) * 1000)
     raw = response.content[0].text if response.content else ""
     if response.usage:
-        _cost_tracker.add(response.usage.input_tokens, response.usage.output_tokens)
+        u = response.usage
+        _cost_tracker.add(
+            u.input_tokens, u.output_tokens,
+            cache_creation=getattr(u, "cache_creation_input_tokens", 0) or 0,
+            cache_read=getattr(u, "cache_read_input_tokens", 0) or 0,
+        )
 
     match = re.search(r"```python\s*(.*?)\s*```", raw, re.DOTALL)
     code = match.group(1).strip() if match else raw.strip()

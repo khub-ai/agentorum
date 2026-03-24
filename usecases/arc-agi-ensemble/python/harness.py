@@ -73,22 +73,26 @@ def _save_results(
     accuracy     = correct / total if total > 0 else 0.0
     avg_ms       = sum(r["duration_ms"] for r in all_results) / max(total, 1)
     conv_rate    = sum(1 for r in all_results if r.get("converged")) / max(total, 1)
-    total_cost   = sum(r.get("cost_usd", 0.0) for r in all_results)
-    total_tokens = sum(r.get("input_tokens", 0) + r.get("output_tokens", 0) for r in all_results)
-    hints_used   = sum(1 for r in all_results if r.get("human_hints"))
-    run_ts       = datetime.datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ")
+    total_cost         = sum(r.get("cost_usd", 0.0) for r in all_results)
+    total_tokens       = sum(r.get("input_tokens", 0) + r.get("output_tokens", 0) for r in all_results)
+    total_cache_creation = sum(r.get("cache_creation_tokens", 0) for r in all_results)
+    total_cache_read     = sum(r.get("cache_read_tokens", 0) for r in all_results)
+    hints_used         = sum(1 for r in all_results if r.get("human_hints"))
+    run_ts             = datetime.datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ")
 
     payload = {
         "summary": {
-            "correct":        correct,
-            "total":          total,
-            "accuracy":       accuracy,
-            "avg_ms":         avg_ms,
-            "conv_rate":      conv_rate,
-            "total_cost_usd": round(total_cost, 6),
-            "avg_cost_usd":   round(total_cost / max(total, 1), 6),
-            "total_tokens":   total_tokens,
-            "hints_used":     hints_used,
+            "correct":               correct,
+            "total":                 total,
+            "accuracy":              accuracy,
+            "avg_ms":                avg_ms,
+            "conv_rate":             conv_rate,
+            "total_cost_usd":        round(total_cost, 6),
+            "avg_cost_usd":          round(total_cost / max(total, 1), 6),
+            "total_tokens":          total_tokens,
+            "total_cache_creation":  total_cache_creation,
+            "total_cache_read":      total_cache_read,
+            "hints_used":            hints_used,
             "model":          model,
             "dataset":        dataset,
             "timestamp":      run_ts,
@@ -307,10 +311,12 @@ async def main() -> None:
             "converged":       meta.mediator.converged if meta.mediator else False,
             "rounds":          meta.rounds_completed,
             "duration_ms":     meta.total_duration_ms,
-            "cost_usd":        meta.cost_usd,
-            "input_tokens":    meta.input_tokens,
-            "output_tokens":   meta.output_tokens,
-            "api_calls":       meta.api_calls,
+            "cost_usd":              meta.cost_usd,
+            "input_tokens":          meta.input_tokens,
+            "cache_creation_tokens": meta.cache_creation_tokens,
+            "cache_read_tokens":     meta.cache_read_tokens,
+            "output_tokens":         meta.output_tokens,
+            "api_calls":             meta.api_calls,
             "human_hints":     meta.human_hints_used,
             "tools_generated": meta.tools_generated,
             "model":           meta.model,
@@ -334,22 +340,26 @@ async def main() -> None:
     accuracy     = correct_count / total if total > 0 else 0.0
     avg_ms       = sum(r["duration_ms"] for r in all_results) / max(total, 1)
     conv_rate    = sum(1 for r in all_results if r.get("converged")) / max(total, 1)
-    total_cost   = sum(r.get("cost_usd", 0.0) for r in all_results)
-    avg_cost     = total_cost / max(total, 1)
-    total_tokens = sum(r.get("input_tokens", 0) + r.get("output_tokens", 0) for r in all_results)
-    hints_count  = sum(1 for r in all_results if r.get("human_hints"))
+    total_cost         = sum(r.get("cost_usd", 0.0) for r in all_results)
+    avg_cost           = total_cost / max(total, 1)
+    total_tokens       = sum(r.get("input_tokens", 0) + r.get("output_tokens", 0) for r in all_results)
+    total_cache_create = sum(r.get("cache_creation_tokens", 0) for r in all_results)
+    total_cache_read   = sum(r.get("cache_read_tokens", 0) for r in all_results)
+    hints_count        = sum(1 for r in all_results if r.get("human_hints"))
 
     table = Table(title="Run Summary")
     table.add_column("Metric")
     table.add_column("Value")
-    table.add_row("Tasks run",        str(total))
-    table.add_row("Correct",          f"{correct_count}/{total}  ({accuracy*100:.1f}%)")
-    table.add_row("Avg duration",     f"{avg_ms/1000:.1f}s")
-    table.add_row("Convergence rate", f"{conv_rate*100:.1f}%")
-    table.add_row("Total cost (USD)", f"${total_cost:.4f}")
-    table.add_row("Avg cost / task",  f"${avg_cost:.4f}")
-    table.add_row("Total tokens",     f"{total_tokens:,}")
-    table.add_row("Human hints used", f"{hints_count}/{total} tasks")
+    table.add_row("Tasks run",            str(total))
+    table.add_row("Correct",              f"{correct_count}/{total}  ({accuracy*100:.1f}%)")
+    table.add_row("Avg duration",         f"{avg_ms/1000:.1f}s")
+    table.add_row("Convergence rate",     f"{conv_rate*100:.1f}%")
+    table.add_row("Total cost (USD)",     f"${total_cost:.4f}")
+    table.add_row("Avg cost / task",      f"${avg_cost:.4f}")
+    table.add_row("Input tokens",         f"{total_tokens:,}")
+    table.add_row("Cache create tokens",  f"{total_cache_create:,}")
+    table.add_row("Cache read tokens",    f"{total_cache_read:,}")
+    table.add_row("Human hints used",     f"{hints_count}/{total} tasks")
     table.add_row("Model",            DEFAULT_MODEL)
     table.add_row("Dataset",          args.dataset)
     table.add_row("Rules (active)",   str(rules.stats_summary()["active"]))

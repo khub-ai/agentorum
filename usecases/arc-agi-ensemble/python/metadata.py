@@ -75,6 +75,8 @@ class TaskMetadata:
     human_hints_used: bool = False
     tools_generated: list = field(default_factory=list)   # names of dynamically created tools
     input_tokens: int = 0
+    cache_creation_tokens: int = 0
+    cache_read_tokens: int = 0
     output_tokens: int = 0
     api_calls: int = 0
     cost_usd: float = 0.0
