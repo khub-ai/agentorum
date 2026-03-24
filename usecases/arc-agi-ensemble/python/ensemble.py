@@ -15,8 +15,41 @@ Protocol:
 
 from __future__ import annotations
 import asyncio
+import json
+import os
 import time
+from pathlib import Path
 from typing import Optional
+
+# ---------------------------------------------------------------------------
+# Failed-hypothesis sidecar — persists solver hypotheses from failed runs
+# so correction events (--insight) can reference what was actually wrong.
+# ---------------------------------------------------------------------------
+_FAILED_HYP_PATH = Path(__file__).parent / "failed_hypotheses.json"
+
+
+def _load_failed_hypotheses() -> dict:
+    try:
+        return json.loads(_FAILED_HYP_PATH.read_text(encoding="utf-8"))
+    except (FileNotFoundError, json.JSONDecodeError):
+        return {}
+
+
+def _save_failed_hypothesis(task_id: str, hypotheses: list[str]) -> None:
+    data = _load_failed_hypotheses()
+    data[task_id] = hypotheses
+    tmp = _FAILED_HYP_PATH.with_suffix(".tmp")
+    tmp.write_text(json.dumps(data, indent=2), encoding="utf-8")
+    os.replace(tmp, _FAILED_HYP_PATH)
+
+
+def _clear_failed_hypothesis(task_id: str) -> None:
+    data = _load_failed_hypotheses()
+    if task_id in data:
+        data.pop(task_id)
+        tmp = _FAILED_HYP_PATH.with_suffix(".tmp")
+        tmp.write_text(json.dumps(data, indent=2), encoding="utf-8")
+        os.replace(tmp, _FAILED_HYP_PATH)
 
 from grid_tools import Grid, grids_equal, summarize
 from metadata import TaskMetadata, SolverEntry, MediatorDecision, compute_outcome, print_task_summary
@@ -400,9 +433,19 @@ async def run_ensemble(
     # grouping, relative position) over computationally-easy but
     # non-human-natural ones (exact cell count, bounding box area).
     # ------------------------------------------------------------------
+    if not success:
+        # Persist the solver's natural (unguided) hypotheses so a future
+        # correction run (--insight) can reference what was actually wrong.
+        hyps = [e.rule[:400] for e in r1_entries if e.rule.strip()]
+        if hyps:
+            _save_failed_hypothesis(task_id, hyps)
+
     if success and human_insight:
         log("  Correction event detected: extracting preference rule...", force=True)
-        wrong_hyps = [e.rule[:300] for e in r1_entries]
+        # Prefer hypotheses from a prior FAILED run — they capture what the
+        # solver naturally proposes without the corrective insight.
+        prior_failed = _load_failed_hypotheses().get(task_id, [])
+        wrong_hyps = prior_failed if prior_failed else [e.rule[:300] for e in r1_entries]
         correct_approach = (mediator_text or "")[:600]
         existing_prefs = rule_engine.format_preference_rules_for_solver()
         pref_text = await run_mediator_extract_preference(
@@ -417,6 +460,8 @@ async def run_ensemble(
             pref_ids = [r["id"] for r in pref_changes]
             log(f"  Preference rules created: {pref_ids}", force=True)
             rule_changes.extend(pref_changes)
+        # Clean up — no need to keep the stale failed hypothesis
+        _clear_failed_hypothesis(task_id)
 
     # Auto-deprecate consistently failing rules
     deprecated = rule_engine.auto_deprecate()

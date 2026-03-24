@@ -48,6 +48,7 @@ Each tool takes a grid and returns a transformed grid:
 | `mirror_diagonal` | `direction` (main/anti) | Mirror along diagonal |
 | `identity` | (none) | No-op, returns grid unchanged |
 | `gravity_by_type` | `background` (default 0) | **Closed hollow rectangles** float UP (stack from row 0); **open/cross shapes** sink DOWN (stack from last row). Each object is a rigid unit — preserves shape and color. Same-type objects maintain relative vertical order; different-type objects pass freely. |
+| `recolor_by_hole_count` | `color_map` (required), `object_color` (default 8), `background` (default 0) | Recolor each connected component of `object_color` cells by the number of enclosed topological holes it contains. **You MUST pass `color_map`**: examine the demo pairs, count holes per object, observe the output color for each hole-count, and build the mapping. Example: if 0-hole objects → color 5, 1-hole objects → color 2, 2-hole objects → color 9, pass `color_map={0: 5, 1: 2, 2: 9}`. Without `color_map` the tool uses fallback defaults that will not match task-specific colors. |
 
 Tools are applied sequentially: each step receives the output of the previous step.
 

@@ -499,6 +499,119 @@ def draw_lines_and_replace_intersecting_rects(
     return result
 
 
+def recolor_by_hole_count(
+    grid: Grid,
+    color_map: dict | None = None,
+    object_color: int = 8,
+    background: int = 0,
+    **kwargs,
+) -> Grid:
+    """
+    Recolor each connected component of object_color cells based on the number
+    of topological holes (isolated enclosed background regions) it contains.
+
+    color_map: {hole_count: output_color}
+        MEDIATOR should infer this from the demo pairs and pass it explicitly.
+        Example: color_map={0: 5, 1: 2, 2: 9}
+        If omitted, falls back to: 0 holes → keep object_color, N holes → color N.
+
+    How holes are counted:
+      1. Flood-fill background from all border cells → marks "exterior" cells.
+      2. Any background cell NOT reachable from the border is "interior" (a hole).
+      3. Each contiguous interior region is one hole.
+      4. Each hole is attributed to the object component whose cells are most
+         adjacent to that hole region.
+    """
+    from collections import deque
+
+    if not grid or not grid[0]:
+        return [row[:] for row in grid]
+
+    rows, cols = len(grid), len(grid[0])
+
+    # --- Step 1: flood-fill exterior background ---
+    exterior = [[False] * cols for _ in range(rows)]
+    q: deque = deque()
+    for r in range(rows):
+        for c in range(cols):
+            if (r == 0 or r == rows - 1 or c == 0 or c == cols - 1) and grid[r][c] == background:
+                exterior[r][c] = True
+                q.append((r, c))
+    while q:
+        r, c = q.popleft()
+        for dr, dc in ((-1, 0), (1, 0), (0, -1), (0, 1)):
+            nr, nc = r + dr, c + dc
+            if 0 <= nr < rows and 0 <= nc < cols and not exterior[nr][nc] and grid[nr][nc] == background:
+                exterior[nr][nc] = True
+                q.append((nr, nc))
+
+    # --- Step 2: label object components ---
+    comp_label = [[0] * cols for _ in range(rows)]
+    comp_cells: dict[int, list] = {}
+    cid = 0
+    for r in range(rows):
+        for c in range(cols):
+            if grid[r][c] == object_color and comp_label[r][c] == 0:
+                cid += 1
+                comp_cells[cid] = []
+                q = deque([(r, c)])
+                comp_label[r][c] = cid
+                while q:
+                    cr, cc = q.popleft()
+                    comp_cells[cid].append((cr, cc))
+                    for dr, dc in ((-1, 0), (1, 0), (0, -1), (0, 1)):
+                        nr, nc = cr + dr, cc + dc
+                        if 0 <= nr < rows and 0 <= nc < cols and grid[nr][nc] == object_color and comp_label[nr][nc] == 0:
+                            comp_label[nr][nc] = cid
+                            q.append((nr, nc))
+
+    # --- Step 3: count holes per component ---
+    hole_count: dict[int, int] = {k: 0 for k in comp_cells}
+    interior_visited = [[False] * cols for _ in range(rows)]
+    for r in range(rows):
+        for c in range(cols):
+            if grid[r][c] == background and not exterior[r][c] and not interior_visited[r][c]:
+                # BFS this interior region
+                region: list = []
+                q = deque([(r, c)])
+                interior_visited[r][c] = True
+                while q:
+                    cr, cc = q.popleft()
+                    region.append((cr, cc))
+                    for dr, dc in ((-1, 0), (1, 0), (0, -1), (0, 1)):
+                        nr, nc = cr + dr, cc + dc
+                        if 0 <= nr < rows and 0 <= nc < cols and grid[nr][nc] == background and not exterior[nr][nc] and not interior_visited[nr][nc]:
+                            interior_visited[nr][nc] = True
+                            q.append((nr, nc))
+                # Attribute hole to adjacent component with most boundary contact
+                adj: dict[int, int] = {}
+                for hr, hc in region:
+                    for dr, dc in ((-1, 0), (1, 0), (0, -1), (0, 1)):
+                        nr, nc = hr + dr, hc + dc
+                        if 0 <= nr < rows and 0 <= nc < cols:
+                            k = comp_label[nr][nc]
+                            if k:
+                                adj[k] = adj.get(k, 0) + 1
+                if adj:
+                    best = max(adj, key=lambda x: adj[x])
+                    hole_count[best] += 1
+
+    # --- Step 4: recolor ---
+    # Normalize color_map keys to int (LLMs sometimes generate string keys like {"1": 1})
+    if color_map is not None:
+        color_map = {int(k): int(v) for k, v in color_map.items()}
+    result = [row[:] for row in grid]
+    for k, cells in comp_cells.items():
+        cnt = hole_count[k]
+        if color_map is not None:
+            new_color = color_map.get(cnt, object_color)
+        else:
+            new_color = object_color if cnt == 0 else cnt
+        for r, c in cells:
+            result[r][c] = new_color
+    return result
+
+
 def unshear_right(grid: Grid, background: int = 0, **kwargs) -> Grid:
     """
     One-step de-shear: for each color group, keep the bottom row fixed

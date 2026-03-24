@@ -22,7 +22,7 @@ from grid_tools import (
     flip_horizontal, flip_vertical, transpose, crop, pad,
     bounding_box, unique_colors, color_count, shape,
     count_connected_components, gravity_by_type, unshear_right, barrier_beam,
-    draw_lines_and_replace_intersecting_rects,
+    draw_lines_and_replace_intersecting_rects, recolor_by_hole_count,
 )
 
 
@@ -208,6 +208,10 @@ def _draw_lines_and_replace_intersecting_rects(grid: Grid, line_color: int = 1, 
     """Draw crosshair lines from opposite-edge 1-markers; convert adjacent/intersecting 2-rects to 1s."""
     return draw_lines_and_replace_intersecting_rects(grid, line_color=line_color, rect_color=rect_color)
 
+def _recolor_by_hole_count(grid: Grid, color_map: dict | None = None, object_color: int = 8, background: int = 0, **kwargs) -> Grid:
+    """Recolor each object component by topological hole count. Pass color_map={holes: output_color} inferred from demos."""
+    return recolor_by_hole_count(grid, color_map=color_map, object_color=object_color, background=background)
+
 
 # Register all built-in tools (names recorded so dynamic tools cannot override them)
 for _name, _fn in [
@@ -230,6 +234,7 @@ for _name, _fn in [
     ("unshear_right", _unshear_right),
     ("barrier_beam",  _barrier_beam),
     ("draw_lines_and_replace_intersecting_rects", _draw_lines_and_replace_intersecting_rects),
+    ("recolor_by_hole_count", _recolor_by_hole_count),
 ]:
     register_tool(_name, _fn)
     _BUILTIN_NAMES.add(_name)
@@ -238,6 +243,13 @@ for _name, _fn in [
 # ---------------------------------------------------------------------------
 # Pseudo-code parsing
 # ---------------------------------------------------------------------------
+
+def _fix_integer_keys(s: str) -> str:
+    """Convert Python-style integer dict keys to valid JSON string keys.
+    LLMs frequently generate {1: 1, 2: 3} instead of {"1": 1, "2": 3}.
+    """
+    return re.sub(r'(?<=[{,])\s*(-?\d+)\s*:', lambda m: f' "{m.group(1).strip()}":', s)
+
 
 def parse_pseudocode(text: str) -> list[dict]:
     """
@@ -254,19 +266,23 @@ def parse_pseudocode(text: str) -> list[dict]:
     ```
 
     Also accepts a bare list of steps.
+    Handles LLM quirk of integer dict keys (e.g., {1: 1} → {"1": 1}).
     """
     block_re = re.compile(r"```(?:json)?\s*(.*?)\s*```", re.DOTALL | re.IGNORECASE)
     for raw in block_re.findall(text):
-        try:
-            obj = json.loads(raw)
-            if isinstance(obj, dict) and "pseudocode" in obj:
-                steps = [s for s in obj["pseudocode"] if isinstance(s, dict) and "tool" in s]
-                return steps[:MAX_PSEUDOCODE_STEPS]
-            if isinstance(obj, list) and obj and isinstance(obj[0], dict) and "tool" in obj[0]:
-                steps = [s for s in obj if isinstance(s, dict) and "tool" in s]
-                return steps[:MAX_PSEUDOCODE_STEPS]
-        except (json.JSONDecodeError, Exception):
-            continue
+        for candidate in (raw, _fix_integer_keys(raw)):
+            try:
+                obj = json.loads(candidate)
+                if isinstance(obj, dict) and "pseudocode" in obj:
+                    steps = [s for s in obj["pseudocode"] if isinstance(s, dict) and "tool" in s]
+                    if steps:
+                        return steps[:MAX_PSEUDOCODE_STEPS]
+                if isinstance(obj, list) and obj and isinstance(obj[0], dict) and "tool" in obj[0]:
+                    steps = [s for s in obj if isinstance(s, dict) and "tool" in s]
+                    if steps:
+                        return steps[:MAX_PSEUDOCODE_STEPS]
+            except (json.JSONDecodeError, Exception):
+                continue
     return []
 
 

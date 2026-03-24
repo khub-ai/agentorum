@@ -203,6 +203,22 @@ Each entry includes a **Timestamp** field (UTC, ISO-8601) recording when the tas
 
 ---
 
+### 0a2355a6 — Recolor objects by topological hole count
+**Timestamp:** 2026-03-24T06:44Z
+**Category:** `[topology]`
+**Demos:** 4 | **Grid:** 15×17 (test)
+**Pattern:** Grid has multiple disconnected components of color 8 (azure), each with a different number of enclosed interior holes (background regions unreachable from the border). Recolor each component based on its hole count: 1 hole→1, 2 holes→3, 3 holes→2, 4 holes→4.
+**Solver hypothesis:** Correct (high confidence) — "recolor each 8-component by topological hole count"
+**MEDIATOR action:** Used `recolor_by_hole_count(color_map={'1':1,'2':3,'3':2,'4':4}, object_color=8)`. Passed first try after bugs were fixed.
+**Rounds:** 3 | **Revisions:** 0 | **Hints:** none (autonomous)
+**Cost:** $0.1663 | **Time:** 43.3s
+**Result:** ✓ CORRECT 100%
+**Rules created:**
+- `r_085` `[topology]` Azure (8) connected components with varying hole counts → recolor by hole count using `recolor_by_hole_count(color_map={1:1,2:3,3:2,4:4})`
+**Note:** Took many debugging iterations to solve autonomously. Root causes: (1) MEDIATOR generated `{1: 1, ...}` with integer JSON keys — invalid JSON, `parse_pseudocode` returned 0 steps. Fixed by adding `_fix_integer_keys()` preprocessor. (2) `recolor_by_hole_count` used `color_map.get(int_key)` but MEDIATOR passed string keys — fixed by normalizing keys to int at tool entry. (3) MEDIATOR kept re-deriving wrong color_map from visual inspection. Fixed by adding WARNING in rule action. (4) Multiple conflicting rules (r_080–r_087) accumulated over retry runs — kept triggering auto-deprecation loop. Fixed by deprecating all wrong-mapping rules.
+
+---
+
 ### 025d127b — De-shear parallelogram shapes
 **Category:** `[object-manipulation]`  
 **Demos:** 2 | **Grid:** varies  

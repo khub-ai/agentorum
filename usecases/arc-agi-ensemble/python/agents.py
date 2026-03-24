@@ -470,29 +470,41 @@ async def run_mediator_extract_preference(
         if existing_preference_rules.strip() else ""
     )
 
+    wrong_section = (
+        "### What the solver initially proposed (from a prior FAILED run — this is what was wrong):\n"
+        + "\n".join(f"- {h}" for h in wrong_hypotheses)
+        if wrong_hypotheses else
+        "### Prior failed hypotheses: not available for this task."
+    )
+
     user_msg = (
         f"## Correction event on task: {task_id}\n\n"
-        f"### What the solver initially proposed (wrong):\n"
-        + "\n".join(f"- {h}" for h in wrong_hypotheses)
-        + f"\n\n### Human insight that corrected it:\n{human_insight}\n\n"
+        f"{wrong_section}\n\n"
+        f"### Human insight that corrected it:\n{human_insight}\n\n"
         f"### Approach that ultimately succeeded:\n{correct_approach}\n"
         f"{existing_section}\n"
         "## Your task\n\n"
         "Extract a **preference rule** from this correction event.\n\n"
-        "A preference rule captures *why the solver's initial hypothesis was "
-        "systematically wrong* and *what reasoning property it should prefer* in the future "
-        "when faced with similar ambiguity.\n\n"
+        "**Primary focus — reason backwards from the insight:**\n"
+        "The human insight tells you what the solver SHOULD have used. "
+        "Ask: what property was the solver likely preferring INSTEAD? "
+        "For example, if the insight says 'topological hole count', the solver was "
+        "probably choosing a simpler metric like pixel count or bounding-box area "
+        "because those are computationally easier but less human-natural. "
+        "The preference rule should name the RIGHT property (from the insight) and the "
+        "WRONG property (what the solver defaults to) and explain why the right one "
+        "is more human-natural.\n\n"
+        "If prior failed hypotheses ARE provided above, use them as direct evidence "
+        "of what was wrong. If they are not available, infer the wrong property from "
+        "the insight and from common solver failure modes.\n\n"
         "Key properties of a good preference rule:\n"
-        "- It describes a *general reasoning bias*, not a solution for this specific puzzle\n"
-        "- It names the property to prefer (e.g. topological structure, perceptual grouping, "
-        "  relative position) vs the property to de-prioritize (e.g. exact pixel count, "
-        "  bounding box area, lexicographic ordering)\n"
+        "- It names the property to prefer (from the insight) vs the property to "
+        "  de-prioritize (what the solver defaults to, e.g. pixel count, bounding box area)\n"
         "- It explains *why* the preferred property is more human-natural\n"
+        "- It is general enough to transfer to other puzzles with the same ambiguity\n"
         "- It is falsifiable: future puzzles could provide counter-evidence\n"
-        "- The `condition` field should describe the situation where this bias applies "
-        "  (e.g. 'when multiple objects could be classified by size OR by topology')\n"
-        "- The `rule_action` field should state the preference: "
-        "  'prefer X over Y because humans perceive X first/more reliably'\n\n"
+        "- The `condition` field: describe the situation where this bias applies\n"
+        "- The `rule_action` field: 'prefer X over Y because humans perceive X first/more reliably'\n\n"
         "Emit a rule_updates JSON block with `rule_type: \"preference\"`:\n"
         "```json\n"
         '{"rule_updates": [\n'
@@ -506,7 +518,7 @@ async def run_mediator_extract_preference(
         "]}\n"
         "```\n"
         "Omit the block if no generalizable preference can be extracted "
-        "(e.g. the correction was task-specific and unlikely to transfer)."
+        "(e.g. the correction was purely task-specific and unlikely to transfer)."
     )
 
     text, _ms = await call_agent("MEDIATOR", user_msg, max_tokens=1024)
