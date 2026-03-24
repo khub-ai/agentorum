@@ -428,7 +428,9 @@ Return ONLY the function code inside a ```python block. No explanation outside t
 
 
 def _format_demo_examples(task: dict, max_demos: int = 3) -> str:
-    """Format demo pairs as concrete input/output examples for the tool generator."""
+    """Format demo pairs as concrete input/output examples for the tool generator.
+    Also includes the test input (no expected output) so the generator can see
+    any structural variations not present in the demos."""
     lines = ["## Concrete examples your function MUST pass (verified by the executor):"]
     for i, pair in enumerate(task.get("train", [])[:max_demos], 1):
         lines.append(f"\n### Example {i}")
@@ -436,6 +438,11 @@ def _format_demo_examples(task: dict, max_demos: int = 3) -> str:
         lines.append(grid_to_str(pair["input"]))
         lines.append("Expected output grid:")
         lines.append(grid_to_str(pair["output"]))
+    for i, t in enumerate(task.get("test", []), 1):
+        lines.append(f"\n### Test input {i} (expected output unknown — your function MUST handle this input correctly)")
+        lines.append("Input grid:")
+        lines.append(grid_to_str(t["input"]))
+        lines.append("*(No expected output shown — but note any structural differences from the demo examples above, such as opposite direction, mirrored orientation, or objects on the other side of a divider. Ensure your implementation handles all such variants.)*")
     return "\n".join(lines)
 
 

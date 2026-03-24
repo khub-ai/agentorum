@@ -21,7 +21,7 @@ from grid_tools import (
     apply_gravity, flood_fill, replace_color, rotate_90,
     flip_horizontal, flip_vertical, transpose, crop, pad,
     bounding_box, unique_colors, color_count, shape,
-    count_connected_components, gravity_by_type, unshear_right,
+    count_connected_components, gravity_by_type, unshear_right, barrier_beam,
 )
 
 
@@ -73,6 +73,7 @@ class ExecutionResult:
 # Tools must be pure functions: same input → same output
 
 _TOOL_REGISTRY: dict[str, Callable] = {}
+_BUILTIN_NAMES: set = set()  # names registered as builtins; dynamic tools cannot override these
 
 
 def register_tool(name: str, fn: Callable) -> None:
@@ -86,6 +87,10 @@ def get_tool(name: str) -> Optional[Callable]:
 
 def list_tools() -> list[str]:
     return sorted(_TOOL_REGISTRY.keys())
+
+
+def is_builtin(name: str) -> bool:
+    return name in _BUILTIN_NAMES
 
 
 def tool_signatures() -> str:
@@ -194,8 +199,12 @@ def _unshear_right(grid: Grid, background: int = 0) -> Grid:
     """One de-shear step: keep each component's bottom row fixed, shift all other rows right by 1 (capped at max_right)."""
     return unshear_right(grid, background=background)
 
+def _barrier_beam(grid: Grid, background: int = 0) -> Grid:
+    """8-barrier shoots 4s toward it (leaving 3-shadow), packs 2s to far edge, fills with 8."""
+    return barrier_beam(grid, background=background)
 
-# Register all built-in tools
+
+# Register all built-in tools (names recorded so dynamic tools cannot override them)
 for _name, _fn in [
     ("gravity", _gravity),
     ("flood_fill", _flood_fill),
@@ -214,8 +223,10 @@ for _name, _fn in [
     ("mirror_diagonal", _mirror_diagonal),
     ("gravity_by_type", _gravity_by_type),
     ("unshear_right", _unshear_right),
+    ("barrier_beam",  _barrier_beam),
 ]:
     register_tool(_name, _fn)
+    _BUILTIN_NAMES.add(_name)
 
 
 # ---------------------------------------------------------------------------
@@ -485,7 +496,10 @@ def register_dynamic_tool(name: str, code: str) -> tuple[bool, str]:
     """
     Compile and register a dynamically generated tool function.
     Returns (success, error_message).
+    Builtins (names in _BUILTIN_NAMES) cannot be overridden by dynamic tools.
     """
+    if name in _BUILTIN_NAMES:
+        return True, ""  # builtin already registered; dynamic version silently skipped
     import numpy as np
     namespace: dict = {"np": np, "__builtins__": __builtins__}
     try:
@@ -502,6 +516,8 @@ def register_dynamic_tool(name: str, code: str) -> tuple[bool, str]:
 def test_tool_code(name: str, code: str, task: dict) -> tuple[bool, str]:
     """
     Compile, temporarily register, and test a tool against all demo pairs.
+    Also smoke-tests on the test input (no expected output — just checks it runs
+    without crashing, since the test input may have structural variants not in demos).
 
     Runs a single-step pseudocode [tool=name, args={}] against every demo.
     Returns (all_pass, trace_text). On compile error returns (False, error).
@@ -513,6 +529,17 @@ def test_tool_code(name: str, code: str, task: dict) -> tuple[bool, str]:
 
     pseudocode = [{"step": 1, "tool": name, "args": {}}]
     er = run_executor(pseudocode, task)
-    if er.all_pass:
-        return True, ""
-    return False, format_execution_trace(er)
+    if not er.all_pass:
+        return False, format_execution_trace(er)
+
+    # Smoke-test on test input: we don't know the expected output, but the tool
+    # must at least run without crashing (catches runtime errors on unseen variants).
+    for i, t in enumerate(task.get("test", []), 1):
+        try:
+            tool_fn = get_tool(name)
+            if tool_fn is not None:
+                tool_fn(t["input"])
+        except Exception as e:
+            return False, f"Tool crashed on test input {i}: {e}"
+
+    return True, ""

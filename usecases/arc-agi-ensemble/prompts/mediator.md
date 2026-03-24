@@ -105,6 +105,8 @@ If none of the available tools can express the required transformation, you may 
 }
 ```
 
+**Critical: write general tool behavior.** Before writing the `behavior` field, compare the test input to the demo pairs. Does the test input show a structural variation the demos do not — opposite direction, mirrored orientation, objects on the other side of a divider, swapped color roles? If so, the `behavior` description **must explicitly cover all observed variants**, not just the demos. A tool that only handles the demo cases will pass verification but silently fail on the test input.
+
 The system will generate the Python implementation, register it, and re-run your pseudo-code with the new tool available. Your pseudo-code can then reference it by name.
 
 **When to request a new tool:**
