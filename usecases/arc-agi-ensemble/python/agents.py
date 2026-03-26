@@ -447,6 +447,95 @@ async def run_mediator_revise(
 
 
 # ---------------------------------------------------------------------------
+# ---------------------------------------------------------------------------
+# Rule generalization pass — called after a successful run with new task rules
+# ---------------------------------------------------------------------------
+
+async def run_generalization_pass(
+    task_id: str,
+    new_rule_ids: list[str],
+    new_rules: list[dict],
+    existing_rules_summary: str,
+) -> str:
+    """
+    After a successful run, ask MEDIATOR to propose generalized variants of the
+    newly created task rules.
+
+    Generalized rules start as 'candidate' status — they are included in Round 0
+    matching but labeled as unconfirmed. A candidate is promoted to 'active' on
+    its first independent success on a DIFFERENT task, and deprecated after 1
+    failure on a different task.
+
+    This allows the system to speculatively extend knowledge without corrupting the
+    rule base with unconfirmed generalizations.
+
+    Args:
+        task_id:              The task that just succeeded.
+        new_rule_ids:         IDs of rules created/updated during this run.
+        new_rules:            Full rule dicts for context.
+        existing_rules_summary: Formatted existing rules (for dedup checking).
+
+    Returns:
+        Raw MEDIATOR response text (caller parses rule_updates from it).
+    """
+    if not new_rules:
+        return ""
+
+    rules_section = "\n".join(
+        f"- [{r['id']}]\n  CONDITION: {r['condition']}\n  ACTION: {r['action']}"
+        for r in new_rules
+    )
+
+    user_msg = (
+        f"## Generalization request for task: {task_id}\n\n"
+        f"The following rule(s) were just created after a successful solve:\n\n"
+        f"{rules_section}\n\n"
+        f"## Existing rules (for dedup — do NOT recreate these)\n\n"
+        f"{existing_rules_summary}\n\n"
+        "## Your task\n\n"
+        "For each new rule above, propose **one generalized variant** with a broader "
+        "condition that would match a wider family of puzzles with the same underlying "
+        "transformation logic.\n\n"
+        "A good generalization:\n"
+        "- Removes constraints that are specific to this one task (specific colors, "
+        "  exact counts, specific grid sizes, specific positions)\n"
+        "- Preserves the essential structural property that determines WHEN the "
+        "  transformation applies\n"
+        "- Keeps the same action (same tool/approach), but makes the condition trigger "
+        "  on more puzzle variations\n"
+        "- Identifies what DIMENSION of variation is being generalized "
+        "  (e.g. 'works for any number of sequences, not just 2')\n\n"
+        "Consider these generalization dimensions:\n"
+        "  1. **Count**: relax 'exactly N' to 'at least N' or 'N or more'\n"
+        "  2. **Role assignment**: relax 'longest = spine' to 'some criterion = spine'\n"
+        "  3. **Orientation**: relax 'horizontal or vertical' to 'any linear arrangement'\n"
+        "  4. **Position**: relax 'at edge/corner' to 'anywhere in grid'\n"
+        "  5. **Color**: relax specific color values to 'any non-background colors'\n\n"
+        "Only propose a generalization if you are confident it describes a real broader "
+        "pattern class. If the rule is already maximally general, say so and omit it.\n\n"
+        "Generalized rules MUST use `action: \"generalize\"` with the parent rule's ID.\n"
+        "They will be stored as CANDIDATE rules (unconfirmed) and only promoted to active "
+        "after succeeding independently on a different task.\n\n"
+        "```json\n"
+        '{"rule_updates": [\n'
+        '  {\n'
+        '    "action": "generalize",\n'
+        '    "parent_id": "r_NNN",\n'
+        '    "condition": "[category] Broader condition...",\n'
+        '    "rule_action": "Same action as parent...",\n'
+        '    "reason": "What dimension was generalized and why",\n'
+        '    "tags": ["...relevant-tags..."]\n'
+        '  }\n'
+        "]}\n"
+        "```\n"
+        "Omit the block entirely if no useful generalizations can be made."
+    )
+
+    text, _ms = await call_agent("MEDIATOR", user_msg, max_tokens=1024)
+    return text
+
+
+# ---------------------------------------------------------------------------
 # Preference rule extraction — called when insight + success
 # ---------------------------------------------------------------------------
 

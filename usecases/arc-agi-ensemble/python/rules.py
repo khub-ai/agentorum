@@ -149,27 +149,35 @@ class RuleEngine:
         return None
 
     def active_rules(self) -> list[dict]:
-        """Return all rules that are not deprecated (both task and preference types)."""
-        return [r for r in self.rules if r.get("status", "active") == "active"]
+        """Return all rules that are not deprecated (both task and preference types).
+        Includes 'active' and 'candidate' rules."""
+        return [r for r in self.rules if r.get("status", "active") in ("active", "candidate")]
 
     def active_task_rules(self) -> list[dict]:
-        """Return active task rules (matched per-puzzle in Round 0)."""
+        """Return active + candidate task rules (matched per-puzzle in Round 0)."""
         return [r for r in self.active_rules() if r.get("rule_type", "task") == "task"]
 
     def active_preference_rules(self) -> list[dict]:
         """Return active preference rules (soft priors injected for every puzzle)."""
         return [r for r in self.active_rules() if r.get("rule_type") == "preference"]
 
+    def candidate_rules(self) -> list[dict]:
+        """Return candidate rules (generalized; awaiting first independent confirmation)."""
+        return [r for r in self.rules if r.get("status") == "candidate"]
+
     def stats_summary(self) -> dict[str, Any]:
-        active = self.active_rules()
-        total = len(self.rules)
-        deprecated = total - len(active)
-        fired = sum(r["stats"]["fired"] for r in active)
-        succeeded = sum(r["stats"]["succeeded"] for r in active)
+        all_rules = self.rules
+        total = len(all_rules)
+        confirmed = [r for r in all_rules if r.get("status", "active") == "active"]
+        candidates = self.candidate_rules()
+        deprecated = [r for r in all_rules if r.get("status") == "deprecated"]
+        fired = sum(r["stats"]["fired"] for r in confirmed + candidates)
+        succeeded = sum(r["stats"]["succeeded"] for r in confirmed + candidates)
         return {
             "total": total,
-            "active": len(active),
-            "deprecated": deprecated,
+            "active": len(confirmed),
+            "candidates": len(candidates),
+            "deprecated": len(deprecated),
             "total_fired": fired,
             "total_succeeded": succeeded,
         }
@@ -201,6 +209,7 @@ class RuleEngine:
         tags: list[str] | None = None,
         lineage: dict | None = None,
         rule_type: str = "task",
+        status: str = "active",
     ) -> dict:
         """
         Create a new rule and persist it.
@@ -223,6 +232,12 @@ class RuleEngine:
                            when multiple plausible hypotheses exist. They are learned from
                            correction events (wrong hypothesis → human insight → success)
                            and injected as soft priors for every puzzle regardless of match.
+            status:      "active" (default), "candidate", or "deprecated".
+                         - "active": fully vetted; used in Round 0 matching.
+                         - "candidate": generalized/inferred; included in matching but
+                           labeled as unconfirmed. Promoted to "active" on first independent
+                           success. Deprecated after 1 failure on an unrelated task.
+                         - "deprecated": excluded from all matching.
 
         Returns:
             The newly created rule dict.
@@ -237,7 +252,7 @@ class RuleEngine:
             "source_task": source_task,
             "tags": tags or [],
             "lineage": lineage or {"type": "new", "parent_ids": [], "reason": ""},
-            "status": "active",
+            "status": status,
             "created": self._now_iso(),
             "last_fired": None,
         }
@@ -254,7 +269,10 @@ class RuleEngine:
         source_task: str = "",
         tags: list[str] | None = None,
     ) -> dict:
-        """Create a more general rule derived from an existing one."""
+        """Create a more general rule derived from an existing one.
+
+        Starts as 'candidate' — promoted to 'active' on first independent success.
+        """
         parent = self.get(parent_id)
         merged_tags = list(set((tags or []) + (parent.get("tags", []) if parent else [])))
         return self.add_rule(
@@ -268,6 +286,7 @@ class RuleEngine:
                 "parent_ids": [parent_id],
                 "reason": reason,
             },
+            status="candidate",
         )
 
     def specialize_rule(
@@ -357,16 +376,34 @@ class RuleEngine:
             r.pop("deprecated_reason", None)
             self.save()
 
+    def promote_candidate(self, rule_id: str) -> bool:
+        """Promote a candidate rule to active after its first independent success.
+
+        Returns True if promoted, False if rule not found or not a candidate.
+        """
+        r = self.get(rule_id)
+        if r and r.get("status") == "candidate":
+            r["status"] = "active"
+            self.save()
+            return True
+        return False
+
     def auto_deprecate(self, min_fired: int = 3) -> list[str]:
         """Deprecate rules that have been fired but never succeeded.
+
+        Active rules: deprecated after min_fired failures with 0 successes.
+        Candidate rules: deprecated after just 1 failure (they haven't been
+        confirmed yet, so a failure is strong evidence the generalization is wrong).
 
         Returns list of deprecated rule IDs.
         """
         deprecated = []
         for r in self.active_rules():
             s = r["stats"]
-            if s["fired"] >= min_fired and s["succeeded"] == 0:
-                self.deprecate_rule(r["id"], reason=f"auto: fired {s['fired']}x, 0 successes")
+            is_candidate = r.get("status") == "candidate"
+            threshold = 1 if is_candidate else min_fired
+            if s["fired"] >= threshold and s["succeeded"] == 0:
+                self.deprecate_rule(r["id"], reason=f"auto: fired {s['fired']}x, 0 successes (candidate={is_candidate})")
                 deprecated.append(r["id"])
         return deprecated
 
@@ -396,8 +433,9 @@ class RuleEngine:
         lines = []
         for r in active:
             sr = self._success_rate(r)
+            label = " ⚠ CANDIDATE (unconfirmed generalization)" if r.get("status") == "candidate" else ""
             lines.append(
-                f"- [{r['id']}] (success {sr:.0%}, fired {r['stats']['fired']}x)\n"
+                f"- [{r['id']}]{label} (success {sr:.0%}, fired {r['stats']['fired']}x)\n"
                 f"  CONDITION: {r['condition']}\n"
                 f"  ACTION: {r['action']}"
             )

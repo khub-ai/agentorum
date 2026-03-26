@@ -55,7 +55,7 @@ from grid_tools import Grid, grids_equal, summarize
 from metadata import TaskMetadata, SolverEntry, MediatorDecision, compute_outcome, print_task_summary
 from agents import (
     run_solvers_round1, run_mediator_synthesize, run_mediator_revise,
-    run_mediator_extract_preference,
+    run_mediator_extract_preference, run_generalization_pass,
     run_tool_generator, run_tool_generator_fix, call_agent,
     format_task_for_prompt, DEFAULT_MODEL, DEFAULT_SOLVERS,
     reset_cost_tracker, get_cost_tracker,
@@ -543,6 +543,43 @@ async def run_ensemble(
             rule_changes.extend(pref_changes)
         # Clean up — no need to keep the stale failed hypothesis
         _clear_failed_hypothesis(task_id)
+
+    # ------------------------------------------------------------------
+    # Candidate promotion — promote candidate rules that fired and succeeded
+    # on this task (independent confirmation).
+    # Only promote if this task is DIFFERENT from the rule's source_task.
+    # ------------------------------------------------------------------
+    if success and matched_rules:
+        promoted = []
+        for m in matched_rules:
+            rule = rule_engine.get(m.rule_id)
+            if rule and rule.get("status") == "candidate" and rule.get("source_task") != task_id:
+                if rule_engine.promote_candidate(m.rule_id):
+                    promoted.append(m.rule_id)
+        if promoted:
+            log(f"  Promoted candidate→active: {promoted}", force=True)
+
+    # ------------------------------------------------------------------
+    # Generalization pass — after a successful run with new task rules,
+    # ask MEDIATOR to propose generalized candidate variants.
+    # Only fires when task rules (not just preference rules) were created.
+    # ------------------------------------------------------------------
+    new_task_rules = [r for r in rule_changes if r.get("rule_type", "task") == "task"
+                      and r.get("lineage", {}).get("type") == "new"]
+    if success and new_task_rules:
+        log("  Running generalization pass...", force=True)
+        existing_summary = rule_engine.format_rules_for_matching()
+        gen_text = await run_generalization_pass(
+            task_id=task_id,
+            new_rule_ids=[r["id"] for r in new_task_rules],
+            new_rules=new_task_rules,
+            existing_rules_summary=existing_summary,
+        )
+        gen_changes = rule_engine.parse_mediator_rule_updates(gen_text, task_id)
+        if gen_changes:
+            gen_ids = [r["id"] for r in gen_changes]
+            log(f"  Generalized candidate rules created: {gen_ids}", force=True)
+            rule_changes.extend(gen_changes)
 
     # Auto-deprecate consistently failing rules
     deprecated = rule_engine.auto_deprecate()

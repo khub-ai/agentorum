@@ -370,8 +370,10 @@ async def main() -> None:
     table.add_row("Human hints used",     f"{hints_count}/{total} tasks")
     table.add_row("Model",            DEFAULT_MODEL)
     table.add_row("Dataset",          args.dataset)
-    table.add_row("Rules (active)",   str(rules.stats_summary()["active"]))
-    table.add_row("Rules (total)",    str(rules.stats_summary()["total"]))
+    rs = rules.stats_summary()
+    table.add_row("Rules (active)",    str(rs["active"]))
+    table.add_row("Rules (candidates)", str(rs.get("candidates", 0)))
+    table.add_row("Rules (total)",     str(rs["total"]))
     console.print(table)
     console.print(f"Results written to [bold]{args.output}[/bold]")
     if args.failed_output:
