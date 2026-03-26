@@ -23,6 +23,7 @@ from grid_tools import (
     bounding_box, unique_colors, color_count, shape,
     count_connected_components, gravity_by_type, unshear_right, barrier_beam,
     draw_lines_and_replace_intersecting_rects, recolor_by_hole_count,
+    radiate_sequences,
 )
 
 
@@ -212,6 +213,10 @@ def _recolor_by_hole_count(grid: Grid, color_map: dict | None = None, object_col
     """Recolor each object component by topological hole count. Pass color_map={holes: output_color} inferred from demos."""
     return recolor_by_hole_count(grid, color_map=color_map, object_color=object_color, background=background)
 
+def _radiate_sequences(grid: Grid, background: int = 0, **kwargs) -> Grid:
+    """Phase 1: longest sequence radiates diagonally. Phase 2: shorter sequences BFS-expand in 8 directions."""
+    return radiate_sequences(grid, background=background)
+
 
 # Register all built-in tools (names recorded so dynamic tools cannot override them)
 for _name, _fn in [
@@ -235,6 +240,7 @@ for _name, _fn in [
     ("barrier_beam",  _barrier_beam),
     ("draw_lines_and_replace_intersecting_rects", _draw_lines_and_replace_intersecting_rects),
     ("recolor_by_hole_count", _recolor_by_hole_count),
+    ("radiate_sequences", _radiate_sequences),
 ]:
     register_tool(_name, _fn)
     _BUILTIN_NAMES.add(_name)
@@ -346,10 +352,11 @@ def execute_steps(grid: Grid, steps: list[dict]) -> tuple[Grid, list[StepResult]
     return current, results
 
 
-def verify_against_demos(steps: list[dict], task: dict) -> list[DemoResult]:
+def verify_against_demos(steps: list[dict], task: dict, fail_fast: bool = False) -> list[DemoResult]:
     """
     Run pseudo-code steps against all demo pairs.
     Returns a DemoResult per pair with pass/fail and step traces.
+    If fail_fast=True, stops after the first failing demo.
     """
     results: list[DemoResult] = []
 
@@ -384,14 +391,18 @@ def verify_against_demos(steps: list[dict], task: dict) -> list[DemoResult]:
             first_diverge_step=first_diverge,
         ))
 
+        if fail_fast and not passed:
+            break
+
     return results
 
 
 def run_executor(steps: list[dict], task: dict) -> ExecutionResult:
     """
     Full execution: verify against all demos, then apply to test input if all pass.
+    Stops after the first failing demo (fail_fast) to save compute.
     """
-    demo_results = verify_against_demos(steps, task)
+    demo_results = verify_against_demos(steps, task, fail_fast=True)
     all_pass = all(d.passed for d in demo_results)
 
     test_output = None
@@ -523,7 +534,23 @@ def register_dynamic_tool(name: str, code: str) -> tuple[bool, str]:
     if name in _BUILTIN_NAMES:
         return True, ""  # builtin already registered; dynamic version silently skipped
     import numpy as np
-    namespace: dict = {"np": np, "__builtins__": __builtins__}
+    import grid_tools as _gt
+    namespace: dict = {
+        "np": np,
+        "numpy": np,
+        "__builtins__": __builtins__,
+        # Expose grid_tools helpers so generated tools can call them directly
+        "grid_tools": _gt,
+        "to_np": _gt.to_np,
+        "to_list": _gt.to_list,
+        "flood_fill": _gt.flood_fill,
+        "replace_color": _gt.replace_color,
+        "unique_colors": _gt.unique_colors,
+        "color_count": _gt.color_count,
+        "grids_equal": _gt.grids_equal,
+        "bounding_box": _gt.bounding_box,
+        "count_connected_components": _gt.count_connected_components,
+    }
     try:
         exec(compile(code, f"<tool:{name}>", "exec"), namespace)  # noqa: S102
         fn = namespace.get(name)
@@ -535,13 +562,14 @@ def register_dynamic_tool(name: str, code: str) -> tuple[bool, str]:
         return False, str(e)
 
 
-def test_tool_code(name: str, code: str, task: dict) -> tuple[bool, str]:
+def test_tool_code(name: str, code: str, task: dict, default_args: dict | None = None) -> tuple[bool, str]:
     """
     Compile, temporarily register, and test a tool against all demo pairs.
     Also smoke-tests on the test input (no expected output — just checks it runs
     without crashing, since the test input may have structural variants not in demos).
 
-    Runs a single-step pseudocode [tool=name, args={}] against every demo.
+    Runs a single-step pseudocode against every demo using default_args if provided
+    (these should be the concrete args the MEDIATOR intends to call the tool with).
     Returns (all_pass, trace_text). On compile error returns (False, error).
     The tool remains registered (subsequent calls with the same name overwrite it).
     """
@@ -549,7 +577,7 @@ def test_tool_code(name: str, code: str, task: dict) -> tuple[bool, str]:
     if not ok:
         return False, f"Compilation error: {err}"
 
-    pseudocode = [{"step": 1, "tool": name, "args": {}}]
+    pseudocode = [{"step": 1, "tool": name, "args": default_args or {}}]
     er = run_executor(pseudocode, task)
     if not er.all_pass:
         return False, format_execution_trace(er)

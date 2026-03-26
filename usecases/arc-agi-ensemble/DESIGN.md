@@ -78,7 +78,44 @@ The rule base (`rules.json`) accumulates solved patterns across puzzle runs. Aft
 
 **Rule lineage**: every rule records how it was created (`new`, `generalized`, `specialized`, `merged`, `consolidated`) and which parent rules it derived from. This allows tracing how knowledge evolves across puzzles.
 
-### 6. Human-in-the-loop is optional and non-blocking
+### 6. Failure handling protocol (operator process)
+
+When the system fails to solve a task autonomously, the correct operator response is **not** to provide the solution directly (e.g., via `--insight` or `--revision-hint`). That would mask the underlying capability gap and prevent the system from becoming self-sufficient.
+
+The correct process is:
+
+```
+1. Understand the correct solution
+   — Analyze the demo pairs manually (or ask the operator).
+   — Identify the exact transformation rule, including any role asymmetries
+     between different object groups (e.g., longest sequence vs. shorter ones).
+
+2. Identify the system gap
+   — Why did the solver not hypothesize the correct rule?
+     (Missing reasoning step? Wrong default assumption? Bias toward simpler properties?)
+   — Why did MEDIATOR fail to synthesize correct pseudo-code?
+     (0 steps? Wrong tool requested? Tool behavior spec too vague?)
+   — Why did the tool generator fail?
+     (Too complex in one tool? Missing primitives? Namespace limitations?)
+   — Was it a revision strategy failure?
+     (MEDIATOR kept reusing the same broken tool across all revisions?)
+
+3. Repair the gap
+   — Fix prompts, tool generation context, revision strategy, or add builtin primitives
+     as appropriate. The fix should address the *class of failure*, not the specific task.
+   — Do NOT hardcode task-specific knowledge (e.g., exact color maps or coordinate offsets).
+     The repair should generalize to structurally similar puzzles.
+
+4. Validate autonomously
+   — Re-run the failing task with NO hints. If it solves, the gap is repaired.
+   — If it still fails, repeat from step 2 — the gap may be deeper or multiple gaps exist.
+```
+
+**Why this matters**: directly providing the solution via `--insight` produces a one-time fix that doesn't transfer. The system learns nothing about the *class of reasoning* it was missing. Gap-repair-first ensures that every hard puzzle makes the system permanently more capable — both for similar future puzzles (via task rules and improved prompts) and for different puzzles that share the same reasoning gap.
+
+**When to use `--insight` legitimately**: only to trigger preference rule extraction after a correction event — i.e., after the gap has already been repaired and the task succeeds autonomously. The insight then documents *what the system was doing wrong before the repair*, not what it should do now.
+
+### 7. Human-in-the-loop is optional and non-blocking (for hints)
 
 Prefilled hints (`--hypothesis`, `--insight`, `--revision-hint`) inject at checkpoints without waiting. If not provided, the system runs fully autonomously. The design intent: hints should *accelerate* convergence, not be required for correctness. A hint that is wrong can actively mislead MEDIATOR — the system does not yet have a mechanism to reject bad hints.
 
@@ -103,7 +140,7 @@ The solver currently has no built-in preference for human-natural over computati
 
 This principle cannot be fully solved by hardcoding a preference list — such a list would be incomplete, potentially wrong, and wouldn't transfer to new puzzle categories. Instead, preferences are **learned from corrections** (see §8).
 
-### 8. Preference rules: learning from corrections
+### 8. Preference rules: learning from corrections (after gap repair)
 
 When the system gets a puzzle wrong and a human correction succeeds, that is a training event:
 
@@ -161,8 +198,8 @@ MEDIATOR currently trusts human hints unconditionally. A wrong hint is worse tha
 ### Preference rule quality
 Preference rules are extracted by MEDIATOR from correction events, which means their quality depends on MEDIATOR's ability to generalize correctly from a single example. A rule extracted too specifically will fail to transfer; a rule extracted too broadly may suppress correct hypotheses. **Future**: validate preference rules by re-running past puzzles with and without the new prior; only retain rules that improve accuracy on held-out tasks.
 
-### Solver property uniqueness blindness
-The solver does not currently reason about whether a hypothesized property *uniquely* discriminates the objects that change vs those that don't. For example, if objects differ in both size AND topology, the solver may latch onto size because it's more obvious to describe — but topology might be the discriminating property. **Future**: add a solver reasoning step that enumerates all observable differences and asks "which of these properties is *unique* to the changed objects?" before committing to a hypothesis.
+### Solver asymmetric role blindness
+The solver may treat all non-zero groups as having the same role, missing cases where different groups transform differently based on a property like length rank, position, or color. The solver prompt now explicitly asks "do all groups transform identically or do different groups have different roles?" — but the solver may still converge on a symmetric description when an asymmetric one is correct. **Future**: add a solver reasoning step that explicitly enumerates all observable group properties (length, orientation, color, position) and tests whether those properties predict which groups have which behavior.
 
 ### Rule matching reliability
 Rule matching uses an LLM call (MEDIATOR reads all rules as text and decides which apply). This can miss matches or produce false positives. **Future**: structured condition predicates (object count, color set, grid shape, transformation category) that can be matched programmatically before the LLM pass.

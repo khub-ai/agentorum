@@ -241,6 +241,7 @@ async def main() -> None:
     # Resume: load previously completed results and skip those task IDs
     output_path = Path(args.output)
     all_results: list[dict] = []
+    run_results: list[dict] = []   # only tasks run THIS invocation
     correct_count = 0
     completed_ids: set[str] = set()
     if args.resume and output_path.exists():
@@ -323,6 +324,7 @@ async def main() -> None:
             "dataset":         meta.dataset,
         }
         all_results.append(row)
+        run_results.append(row)
 
         if args.charts and expected:
             saved = save_all_charts(meta, expected=expected, out_dir=args.charts_dir)
@@ -334,31 +336,37 @@ async def main() -> None:
             _save_failed(Path(args.failed_output), all_results)
 
     # ------------------------------------------------------------------
-    # Final summary table
+    # Final summary table  (stats are for THIS run only, not resumed tasks)
     # ------------------------------------------------------------------
-    total        = len(all_results)
-    accuracy     = correct_count / total if total > 0 else 0.0
-    avg_ms       = sum(r["duration_ms"] for r in all_results) / max(total, 1)
-    conv_rate    = sum(1 for r in all_results if r.get("converged")) / max(total, 1)
-    total_cost         = sum(r.get("cost_usd", 0.0) for r in all_results)
+    rs           = run_results   # alias: only tasks run this invocation
+    total        = len(rs)
+    run_correct  = sum(1 for r in rs if r.get("correct"))
+    accuracy     = run_correct / total if total > 0 else 0.0
+    avg_ms       = sum(r["duration_ms"] for r in rs) / max(total, 1)
+    conv_rate    = sum(1 for r in rs if r.get("converged")) / max(total, 1)
+    total_cost         = sum(r.get("cost_usd", 0.0) for r in rs)
     avg_cost           = total_cost / max(total, 1)
-    total_tokens       = sum(r.get("input_tokens", 0) + r.get("output_tokens", 0) for r in all_results)
-    total_cache_create = sum(r.get("cache_creation_tokens", 0) for r in all_results)
-    total_cache_read   = sum(r.get("cache_read_tokens", 0) for r in all_results)
-    hints_count        = sum(1 for r in all_results if r.get("human_hints"))
+    total_input_tok    = sum(r.get("input_tokens", 0) for r in rs)
+    total_output_tok   = sum(r.get("output_tokens", 0) for r in rs)
+    total_cache_create = sum(r.get("cache_creation_tokens", 0) for r in rs)
+    total_cache_read   = sum(r.get("cache_read_tokens", 0) for r in rs)
+    total_api_calls    = sum(r.get("api_calls", 0) for r in rs)
+    hints_count        = sum(1 for r in rs if r.get("human_hints"))
 
-    table = Table(title="Run Summary")
+    table = Table(title="Run Summary (this invocation)")
     table.add_column("Metric")
     table.add_column("Value")
     table.add_row("Tasks run",            str(total))
-    table.add_row("Correct",              f"{correct_count}/{total}  ({accuracy*100:.1f}%)")
+    table.add_row("Correct",              f"{run_correct}/{total}  ({accuracy*100:.1f}%)")
     table.add_row("Avg duration",         f"{avg_ms/1000:.1f}s")
     table.add_row("Convergence rate",     f"{conv_rate*100:.1f}%")
     table.add_row("Total cost (USD)",     f"${total_cost:.4f}")
     table.add_row("Avg cost / task",      f"${avg_cost:.4f}")
-    table.add_row("Input tokens",         f"{total_tokens:,}")
+    table.add_row("Input tokens",         f"{total_input_tok:,}")
+    table.add_row("Output tokens",        f"{total_output_tok:,}")
     table.add_row("Cache create tokens",  f"{total_cache_create:,}")
     table.add_row("Cache read tokens",    f"{total_cache_read:,}")
+    table.add_row("Total API calls",      f"{total_api_calls:,}")
     table.add_row("Human hints used",     f"{hints_count}/{total} tasks")
     table.add_row("Model",            DEFAULT_MODEL)
     table.add_row("Dataset",          args.dataset)

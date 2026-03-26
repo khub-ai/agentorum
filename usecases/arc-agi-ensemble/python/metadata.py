@@ -224,7 +224,7 @@ def print_task_summary(meta: TaskMetadata, expected: Optional[Grid] = None,
     table.add_column("Round", style="dim")
     table.add_column("Agent")
     table.add_column("Confidence")
-    table.add_column("Rule (truncated)")
+    table.add_column("Hypothesis", no_wrap=False)
     table.add_column("Grid shape")
     table.add_column("Correct?" if expected else "")
 
@@ -239,7 +239,7 @@ def print_task_summary(meta: TaskMetadata, expected: Optional[Grid] = None,
             str(entry.round),
             entry.agent,
             entry.confidence,
-            entry.rule[:60] + ("…" if len(entry.rule) > 60 else ""),
+            entry.rule,
             shape_str,
             acc,
         )

@@ -612,6 +612,119 @@ def recolor_by_hole_count(
     return result
 
 
+def radiate_sequences(grid: Grid, background: int = 0, **kwargs) -> Grid:
+    """
+    Two-phase transformation for puzzles that contain multiple linear non-zero
+    sequences (all cells of a single color in a straight horizontal or vertical
+    line):
+
+    Phase 1 — longest sequence radiates diagonally:
+      Each cell in the longest sequence (by cell count) radiates its own color
+      along all 4 diagonal directions (NW, NE, SW, SE), filling background
+      cells until blocked by a non-background cell or the grid boundary.
+      Cells are processed from the tip (topmost then leftmost) to the end so
+      earlier elements' radiation acts as a barrier for later ones.
+
+    Phase 2 — shorter sequences expand via BFS:
+      Each shorter sequence expands outward in all 8 directions via BFS,
+      filling only background cells.  Cells already claimed by Phase 1 act as
+      natural barriers, so each group expands only into its reachable region.
+
+    This models tasks where one "spine" sequence radiates diagonal stripes
+    across the grid while peripheral sequences flood-fill the remaining space.
+    """
+    from collections import deque
+
+    rows = len(grid)
+    cols = len(grid[0]) if rows else 0
+    if rows == 0 or cols == 0:
+        return [row[:] for row in grid]
+
+    # ── Step 1: find all 4-connected non-zero groups ─────────────────────────
+    visited = [[False] * cols for _ in range(rows)]
+    groups: list[list[tuple[int, int, int]]] = []   # each entry: (r, c, color)
+
+    for r in range(rows):
+        for c in range(cols):
+            v = grid[r][c]
+            if v != background and not visited[r][c]:
+                group: list[tuple[int, int, int]] = []
+                q: deque = deque([(r, c)])
+                visited[r][c] = True
+                while q:
+                    cr, cc = q.popleft()
+                    group.append((cr, cc, grid[cr][cc]))
+                    for dr, dc in ((-1, 0), (1, 0), (0, -1), (0, 1)):
+                        nr, nc = cr + dr, cc + dc
+                        if (0 <= nr < rows and 0 <= nc < cols
+                                and grid[nr][nc] != background
+                                and not visited[nr][nc]):
+                            visited[nr][nc] = True
+                            q.append((nr, nc))
+                groups.append(group)
+
+    if not groups:
+        return [row[:] for row in grid]
+
+    # ── Step 2: identify longest group ────────────────────────────────────────
+    groups.sort(key=lambda g: -len(g))
+    longest = groups[0]
+    shorter = groups[1:]
+
+    # ── Step 3: build working result grid ────────────────────────────────────
+    result = [row[:] for row in grid]
+
+    # ── Step 4: Phase 1 — radiate longest sequence diagonally ────────────────
+    # Process from tip: sort by (row, col) so topmost-then-leftmost goes first.
+    for r, c, color in sorted(longest, key=lambda x: (x[0], x[1])):
+        for dr, dc in ((-1, -1), (-1, 1), (1, -1), (1, 1)):
+            nr, nc = r + dr, c + dc
+            while 0 <= nr < rows and 0 <= nc < cols:
+                if result[nr][nc] != background:
+                    break          # stop at any already-filled cell
+                result[nr][nc] = color
+                nr += dr
+                nc += dc
+
+    # ── Step 5: Phase 2 — BFS expand each shorter sequence ───────────────────
+    for group in shorter:
+        bfs_q: deque = deque()
+        local_seen: set = set()
+
+        # Seed: group cells themselves are already filled; queue their empty neighbours
+        for r, c, color in group:
+            local_seen.add((r, c))
+
+        for r, c, color in group:
+            for dr in (-1, 0, 1):
+                for dc in (-1, 0, 1):
+                    if dr == 0 and dc == 0:
+                        continue
+                    nr, nc = r + dr, c + dc
+                    if (0 <= nr < rows and 0 <= nc < cols
+                            and result[nr][nc] == background
+                            and (nr, nc) not in local_seen):
+                        local_seen.add((nr, nc))
+                        result[nr][nc] = color
+                        bfs_q.append((nr, nc, color))
+
+        while bfs_q:
+            r, c, color = bfs_q.popleft()
+            for dr in (-1, 0, 1):
+                for dc in (-1, 0, 1):
+                    if dr == 0 and dc == 0:
+                        continue
+                    nr, nc = r + dr, c + dc
+                    if (0 <= nr < rows and 0 <= nc < cols
+                            and result[nr][nc] == background
+                            and (nr, nc) not in local_seen):
+                        local_seen.add((nr, nc))
+                        result[nr][nc] = color
+                        bfs_q.append((nr, nc, color))
+
+    return result
+
+
 def unshear_right(grid: Grid, background: int = 0, **kwargs) -> Grid:
     """
     One-step de-shear: for each color group, keep the bottom row fixed

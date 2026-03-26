@@ -165,15 +165,13 @@ def show_r1_hypotheses(entries: list[SolverEntry]) -> None:
     for e in entries:
         cs = _CONF_STYLE.get(e.confidence, "dim")
         short = e.agent.replace("SOLVER-", "")
-        rule_text = e.rule[:300] + ("..." if len(e.rule) > 300 else "")
         body = Text()
-        body.append(rule_text)
+        body.append(e.rule)
         panels.append(Panel(
             body,
             title=f"[bold]{short}[/bold]  [{cs}]{e.confidence}[/{cs}]",
             border_style="blue",
-            expand=False,
-            width=40,
+            expand=True,
         ))
     console.print(Columns(panels, padding=(0, 2)))
     console.print()

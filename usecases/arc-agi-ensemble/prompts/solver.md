@@ -36,9 +36,10 @@ Analyze every task through all three lenses before committing to a hypothesis:
 
 1. **Study the demo pairs.** What changes from input to output? What stays the same?
 2. **Apply all three lenses.** Which lens gives the clearest description?
-3. **Write a precise rule** — precise enough that a tool-execution engine could implement it step by step.
-4. **Verify against ALL demo pairs.** Walk through every input and check your rule produces the correct output. If it fails on any pair, revise before submitting.
-5. **Compare the test input to the demos.** Does the test input show any structural variation not present in the demos? Examples: transformation fires in the opposite direction, pattern is mirrored/rotated, color roles are swapped, objects are on the other side of a divider, asymmetry appears for the first time. Your rule **must be general enough to handle the test input**, not just the demos. Explicitly note any such variation in your `reasoning` field.
+3. **Check for asymmetric roles.** Ask explicitly: *do all non-zero groups transform the same way, or do different groups play different roles?* Look for properties that could assign roles: length/size, position, color, orientation, distance from other groups, or rank (e.g., longest vs. shorter). If groups behave differently, your rule must state what property determines each role.
+4. **Write a precise rule** — precise enough that a tool-execution engine could implement it step by step.
+5. **Verify against ALL demo pairs.** Walk through every input and check your rule produces the correct output. If it fails on any pair, revise before submitting.
+6. **Compare the test input to the demos.** Does the test input show any structural variation not present in the demos? Examples: transformation fires in the opposite direction, pattern is mirrored/rotated, color roles are swapped, objects are on the other side of a divider, asymmetry appears for the first time. Your rule **must be general enough to handle the test input**, not just the demos. Explicitly note any such variation in your `reasoning` field.
 
 ## Important: DO NOT produce an output grid
 

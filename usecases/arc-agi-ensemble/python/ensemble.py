@@ -71,7 +71,7 @@ import display as disp
 MAX_REVISIONS = 5  # how many times MEDIATOR can revise pseudo-code after failure
 
 
-_TOOL_FIX_ATTEMPTS = 3   # max self-correction retries per tool
+_TOOL_FIX_ATTEMPTS = 5   # max self-correction retries per tool
 
 
 async def _generate_and_register_tools(
@@ -92,7 +92,21 @@ async def _generate_and_register_tools(
     specs = parse_new_tools(mediator_text)
     results = []
 
+    # Extract MEDIATOR's overall rationale to give tool fixer more context
+    _rationale = ""
+    import re as _re, json as _json
+    for _raw in _re.findall(r"```(?:json)?\s*(.*?)\s*```", mediator_text, _re.DOTALL | _re.IGNORECASE):
+        try:
+            _obj = _json.loads(_raw)
+            if isinstance(_obj, dict) and "rationale" in _obj:
+                _rationale = _obj["rationale"]
+                break
+        except Exception:
+            pass
+
     for spec in specs:
+        if _rationale and "rationale" not in spec:
+            spec = dict(spec, rationale=_rationale)
         name = spec.get("name", "?")
         total_ms = 0
         final_success = False
@@ -120,17 +134,29 @@ async def _generate_and_register_tools(
         total_ms = gen_ms
         fix_attempt = 0
 
+        # Use args from spec so the tool is tested with the actual parameters
+        # MEDIATOR intends to call it with (e.g. color_map, object_color, etc.)
+        spec_args = spec.get("args", {})
+        # Filter out non-serialisable / placeholder values; keep only concrete ones
+        concrete_args = {k: v for k, v in spec_args.items()
+                         if not isinstance(v, str) or not v.startswith("<")}
+
         if task:
-            all_pass, trace = test_tool_code(name, code, task)
+            all_pass, trace = test_tool_code(name, code, task, default_args=concrete_args)
+            accumulated_traces = [trace]  # grow across fix attempts for richer fixer context
 
             while not all_pass and fix_attempt < _TOOL_FIX_ATTEMPTS:
                 fix_attempt += 1
                 log_fn(f"  [tool_creator] {name}: demo verification failed, fixing "
                        f"(attempt {fix_attempt}/{_TOOL_FIX_ATTEMPTS})...", force=True)
-                fixed_code, fix_ms = await run_tool_generator_fix(spec, code, trace, task=task)
+                combined_trace = "\n\n---\n\n".join(
+                    f"### Attempt {i+1} trace\n{t}" for i, t in enumerate(accumulated_traces)
+                )
+                fixed_code, fix_ms = await run_tool_generator_fix(spec, code, combined_trace, task=task)
                 total_ms += fix_ms
                 code = fixed_code
-                all_pass, trace = test_tool_code(name, code, task)
+                all_pass, trace = test_tool_code(name, code, task, default_args=concrete_args)
+                accumulated_traces.append(trace)
 
             if all_pass:
                 final_success = True
@@ -142,6 +168,13 @@ async def _generate_and_register_tools(
                 log_fn(f"  [tool_creator] {name}: FAILED verification after "
                        f"{_TOOL_FIX_ATTEMPTS} fix(es) — registered with last attempt",
                        force=True)
+                # Show a snippet of the last verification trace so operator can diagnose
+                last_trace = accumulated_traces[-1] if accumulated_traces else ""
+                if last_trace:
+                    trace_lines = [l for l in last_trace.splitlines() if l.strip()]
+                    snippet = "\n        ".join(trace_lines[:8])
+                    log_fn(f"  [tool_creator] {name}: last trace snippet:\n        {snippet}",
+                           force=True)
         else:
             final_success, final_error = register_dynamic_tool(name, code)
             log_fn(f"  [tool_creator] {name}: "
@@ -282,7 +315,7 @@ async def run_ensemble(
     meta.solvers_r1 = r1_entries
     log(f"  Done in {time.time()-t_r1:.1f}s", force=True)
     for e in r1_entries:
-        log(f"  {e.agent}: {e.confidence}  rule={e.rule[:80]}")
+        log(f"  {e.agent}: {e.confidence}  rule={e.rule}", force=True)
 
     if human_in_loop:
         disp.show_r1_hypotheses(r1_entries)
@@ -328,6 +361,13 @@ async def run_ensemble(
 
     exec_result: ExecutionResult = run_executor(pseudocode, task)
     attempt = 1
+    failed_tool_names: list[str] = []  # accumulated across all revisions
+
+    if exec_result.all_pass:
+        log(f"  All demos passed.", force=True)
+    else:
+        demo_acc_parts = [f"demo{d.demo_index}={d.cell_acc*100:.0f}%" for d in exec_result.demos]
+        log(f"  Initial execution failed ({', '.join(demo_acc_parts)})", force=True)
 
     if human_in_loop:
         disp.show_execution_result(exec_result, expected=expected)
@@ -336,8 +376,19 @@ async def run_ensemble(
     # Revision loop — MEDIATOR revises on failure
     # ------------------------------------------------------------------
     while not exec_result.all_pass and attempt <= MAX_REVISIONS:
-        log(f"  FAILED on {sum(1 for d in exec_result.demos if not d.passed)} demo(s). "
-            f"Revision {attempt}/{MAX_REVISIONS}...", force=True)
+        # Per-demo failure detail
+        log(f"  Revision {attempt}/{MAX_REVISIONS}:", force=True)
+        for d in exec_result.demos:
+            status = "PASS" if d.passed else f"FAIL ({d.cell_acc*100:.0f}% acc, {len(d.diff)} cells wrong)"
+            log(f"    Demo {d.demo_index + 1}: {status}", force=True)
+            if not d.passed:
+                for sr in d.steps:
+                    args_str = ", ".join(f"{k}={v!r}" for k, v in sr.args.items()) if sr.args else ""
+                    step_status = "OK" if sr.success else f"ERROR: {sr.error}"
+                    log(f"      Step {sr.step_num}: {sr.tool}({args_str}) → {step_status}", force=True)
+                if d.diff:
+                    sample = ", ".join(f"({r},{c}) got {g} want {w}" for r, c, g, w in d.diff[:5])
+                    log(f"      Diff sample: {sample}", force=True)
 
         trace_text = format_execution_trace(exec_result)
 
@@ -345,21 +396,51 @@ async def run_ensemble(
         if human_in_loop:
             human_revision_insight = disp.human_revision_checkpoint(attempt, prefill=human_revision_hint)
 
+        # Accumulate tool names from this failed pseudocode so MEDIATOR won't reuse them
+        for s in pseudocode:
+            tname = s.get("tool", "")
+            if tname and tname not in failed_tool_names:
+                failed_tool_names.append(tname)
+
         mediator_text, pseudocode, rev_ms = await run_mediator_revise(
             task=task,
             solver_entries=r1_entries,
             previous_pseudocode=pseudocode,
             execution_trace=trace_text,
             human_insight=human_revision_insight,
+            failed_tools=failed_tool_names if attempt > 1 else None,
         )
         mediator_ms += rev_ms
-        log(f"  Revised: {len(pseudocode)} steps", force=True)
+
+        # Extract and log MEDIATOR rationale so operator can see why it chose this approach
+        _med_rationale = ""
+        import re as _re, json as _json
+        for _raw in _re.findall(r"```(?:json)?\s*(\{.*?\})\s*```", mediator_text or "", _re.DOTALL):
+            try:
+                _obj = _json.loads(_raw)
+                if isinstance(_obj, dict) and "rationale" in _obj:
+                    _med_rationale = _obj["rationale"]
+                    break
+            except Exception:
+                pass
+        if _med_rationale:
+            log(f"  MEDIATOR rationale: {_med_rationale}", force=True)
+
+        if pseudocode:
+            log(f"  Revised: {len(pseudocode)} steps", force=True)
+            for s in pseudocode:
+                args_str = ", ".join(f"{k}={v!r}" for k, v in s.get("args", {}).items()) if s.get("args") else ""
+                log(f"    Step {s.get('step','?')}: {s.get('tool','?')}({args_str})", force=True)
+        else:
+            log(f"  Revised: 0 steps (MEDIATOR produced no pseudocode)", force=True)
 
         for r in await _generate_and_register_tools(
             mediator_text, human_in_loop, log, task=task, tool_registry=tool_registry
         ):
             if r["success"]:
                 _tools_generated.append(r["name"])
+            elif not r.get("success") and r.get("error"):
+                log(f"  [tool_creator] {r['name']}: final error — {r['error'][:200]}", force=True)
 
         if human_in_loop:
             disp.show_pseudocode(pseudocode, mediator_text, revision=attempt)

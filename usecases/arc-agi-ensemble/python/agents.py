@@ -398,10 +398,12 @@ async def run_mediator_revise(
     previous_pseudocode: list[dict],
     execution_trace: str,
     human_insight: str = "",
+    failed_tools: list[str] | None = None,
 ) -> tuple[str, list[dict], int]:
     """
     Ask MEDIATOR to revise pseudo-code based on execution failure.
     Returns (raw_response, revised_steps, duration_ms).
+    failed_tools: tool names that have already failed across previous revisions.
     """
     task_text = format_task_for_prompt(task)
 
@@ -418,6 +420,14 @@ async def run_mediator_revise(
         + f"\n\n## Previous pseudo-code (FAILED)\n```json\n{prev_code}\n```\n\n"
         f"## Execution Trace\n{execution_trace}\n\n"
     )
+
+    if failed_tools:
+        user_msg += (
+            "## Tools that have already failed across previous revisions\n"
+            + "\n".join(f"- `{t}`" for t in failed_tools)
+            + "\n\nDo NOT reuse any of these tools. Try a different decomposition "
+            "or request new tools with more precise behavior descriptions.\n\n"
+        )
 
     if human_insight:
         user_msg += f"## Human Insight\n{human_insight}\n\n"
@@ -537,9 +547,19 @@ Requirements:
 - Signature: def {name}(grid, **kwargs) -> list
   where `grid` is list[list[int]] (0 = background color)
 - Return a NEW 2D list of ints — never modify the input in-place
-- You may use numpy internally (imported as `np` and `numpy`)
 - Must be deterministic and handle edge cases (empty grid, single cell) gracefully
 - No docstring, no imports at module level — just the function body
+
+Available in scope (no need to import):
+- `np` / `numpy`: NumPy
+- `to_np(grid)` → numpy 2D int array;  `to_list(arr)` → list[list[int]]
+- `flood_fill(grid, start_row, start_col, fill_color)` → new grid
+- `replace_color(grid, from_color, to_color)` → new grid
+- `unique_colors(grid)` → set of ints present in grid
+- `color_count(grid, color)` → int count of cells with that color
+- `bounding_box(grid, color)` → (r_min, c_min, r_max, c_max) or None
+- `count_connected_components(grid, color)` → int
+- `grids_equal(a, b)` → bool
 
 Return ONLY the function code inside a ```python block. No explanation outside the block."""
 
@@ -634,7 +654,7 @@ _TOOL_FIX_SYSTEM = """You are fixing a Python grid transformation function that 
 You will be given:
 1. The original behavior specification
 2. The current (buggy) function code
-3. An execution trace showing exactly which cells are wrong
+3. One or more execution traces showing exactly which cells are wrong (multiple traces = multiple failed attempts)
 
 Your job: return a corrected version of the function.
 
@@ -643,6 +663,17 @@ Requirements (same as before):
 - Return a NEW 2D list of ints — never modify in-place
 - Deterministic, handles edge cases gracefully
 
+Available in scope (no need to import):
+- `np` / `numpy`: NumPy
+- `to_np(grid)` → numpy 2D int array;  `to_list(arr)` → list[list[int]]
+- `flood_fill(grid, start_row, start_col, fill_color)` → new grid
+- `replace_color(grid, from_color, to_color)` → new grid
+- `unique_colors(grid)` → set of ints present in grid
+- `color_count(grid, color)` → int count of cells with that color
+- `bounding_box(grid, color)` → (r_min, c_min, r_max, c_max) or None
+- `count_connected_components(grid, color)` → int
+
+Study ALL traces before fixing — the same bug may manifest differently across demos.
 Return ONLY the corrected function code inside a ```python block. No explanation outside the block."""
 
 
@@ -663,10 +694,14 @@ async def run_tool_generator_fix(
     description = tool_spec.get("description", "")
     examples_section = f"\n\n{_format_demo_examples(task)}" if task else ""
 
+    rationale = tool_spec.get("rationale", "")
+    rationale_section = f"\n\n## MEDIATOR rationale (why this tool was requested)\n{rationale}" if rationale else ""
+
     user_msg = (
         f"Tool name: `{name}`\n"
         f"Description: {description}\n\n"
         f"Original behavior spec:\n{behavior}"
+        f"{rationale_section}"
         f"{examples_section}\n\n"
         f"## Buggy code\n```python\n{buggy_code}\n```\n\n"
         f"## Execution trace (showing what went wrong)\n{trace}\n\n"

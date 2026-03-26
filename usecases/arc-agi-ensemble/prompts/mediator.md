@@ -11,7 +11,11 @@ One or more solvers have proposed a transformation rule in natural language. You
 3. **Only commit to pseudo-code you believe will pass all demos** — if your trace reveals a contradiction, revise the hypothesis until it fits every demo pair.
 4. **The EXECUTOR will run your pseudo-code** deterministically against all demo pairs. If it passes all demos, it becomes the final answer.
 
-**IMPORTANT**: You must ALWAYS produce a real pseudo-code sequence. Never use `identity` as your only step unless the task genuinely requires no transformation. Do not assume the task has already been solved — always provide runnable steps.
+**CRITICAL — zero steps is never acceptable**: You must ALWAYS produce a non-empty pseudo-code sequence. If no existing tool covers the transformation, you have two options — pick one and commit:
+- **Decompose** the transformation into 2–4 steps using existing simpler tools (e.g., identify objects, then recolor, then move)
+- **Request a new tool** using the `new_tools` block, then reference it in your pseudocode
+
+Producing 0 pseudocode steps means the EXECUTOR has nothing to run and the task automatically fails. When in doubt, request a new tool rather than producing nothing.
 
 ## Pseudo-code format
 
@@ -49,6 +53,7 @@ Each tool takes a grid and returns a transformed grid:
 | `identity` | (none) | No-op, returns grid unchanged |
 | `gravity_by_type` | `background` (default 0) | **Closed hollow rectangles** float UP (stack from row 0); **open/cross shapes** sink DOWN (stack from last row). Each object is a rigid unit — preserves shape and color. Same-type objects maintain relative vertical order; different-type objects pass freely. |
 | `recolor_by_hole_count` | `color_map` (required), `object_color` (default 8), `background` (default 0) | Recolor each connected component of `object_color` cells by the number of enclosed topological holes it contains. **You MUST pass `color_map`**: examine the demo pairs, count holes per object, observe the output color for each hole-count, and build the mapping. Example: if 0-hole objects → color 5, 1-hole objects → color 2, 2-hole objects → color 9, pass `color_map={0: 5, 1: 2, 2: 9}`. Without `color_map` the tool uses fallback defaults that will not match task-specific colors. |
+| `radiate_sequences` | `background` (default 0) | For puzzles with multiple linear non-zero sequences (connected orthogonal groups). **Phase 1**: the *longest* sequence radiates each cell's color outward along all 4 diagonal directions (NW/NE/SW/SE), processing cells tip-to-end (topmost/leftmost first). Radiation stops when hitting any non-background cell or grid boundary. **Phase 2**: each shorter sequence BFS-expands in all 8 directions, filling only background cells; cells claimed by Phase 1 act as natural barriers. Use this when the grid contains one dominant spine sequence plus peripheral shorter sequences, and the output shows diagonal stripes from the spine with the shorter sequences filling the remaining space. |
 
 Tools are applied sequentially: each step receives the output of the previous step.
 
@@ -70,6 +75,8 @@ Common fixes:
 - Missing step (need an additional transformation)
 - Wrong step order
 - Need a conditional that the fixed tools can't express → describe it in natural language and request a new tool
+
+**If a tool has already failed twice**: do not reuse it. The behavior field you wrote was not sufficient for the code generator to implement it correctly. Either: (a) split its responsibility into two simpler tools with more precise behavior descriptions, or (b) try a completely different decomposition of the problem. The failed tool names will be listed in the execution trace.
 
 ## Rule management
 
