@@ -217,16 +217,57 @@ The harness writes per-run stats to `results.json`. Full leaderboard submission 
 
 ## Running the System
 
-```powershell
-# From agentorum root — single puzzle, no hints
-node usecases/arc-agi-ensemble/run-python.mjs --task 0e671a1a
+```bash
+# Single puzzle
+bash usecases/arc-agi-ensemble/run-python.sh --task-id 0e671a1a
 
-# With hints (use .private/ scripts per puzzle)
-.\.private\arc-ac2e8ecf.ps1
+# Batch run (V2-only tasks, offset 30, 10 tasks)
+bash usecases/arc-agi-ensemble/run-python.sh --skip-ids python/v1_ids.json --offset 30 --limit 10
 
-# Batch run (first 10 training puzzles)
-node usecases/arc-agi-ensemble/run-python.mjs --limit 10
+# With human insight
+bash usecases/arc-agi-ensemble/run-python.sh --task-id 0a2355a6 --insight "topological hole count"
 
-# Override revision count
-node usecases/arc-agi-ensemble/run-python.mjs --task 0e671a1a --max-revisions 3
+# Override revision count (useful during debugging to cap API spend)
+bash usecases/arc-agi-ensemble/run-python.sh --task-id 0e671a1a --max-revisions 2
+
+# Show all agent prompts and MEDIATOR output
+bash usecases/arc-agi-ensemble/run-python.sh --task-id 0e671a1a --prompts
 ```
+
+## Performance Stats
+
+`stats.py` aggregates results across all saved result files and prints a structured report. Run it any time to review system health:
+
+```bash
+# Full report (all sections)
+bash usecases/arc-agi-ensemble/run-python.sh --stats
+
+# Single section
+bash usecases/arc-agi-ensemble/run-python.sh --stats --section rules
+bash usecases/arc-agi-ensemble/run-python.sh --stats --section failed
+bash usecases/arc-agi-ensemble/run-python.sh --stats --section generalization
+bash usecases/arc-agi-ensemble/run-python.sh --stats --section methods
+bash usecases/arc-agi-ensemble/run-python.sh --stats --section cost
+
+# Rules + generalization only (no task results needed)
+bash usecases/arc-agi-ensemble/run-python.sh --stats --rules-only
+
+# Specific result files
+bash usecases/arc-agi-ensemble/run-python.sh --stats python/results_v2_21_30.json
+```
+
+### Sections reported
+
+| Section | Contents |
+|---|---|
+| **Overview** | Total tasks, correct/failed counts, accuracy |
+| **Methods** | How tasks were solved: rule-matched vs dynamic-tool vs solver-only, with task IDs |
+| **Rules** | Rule base size, lineage breakdown, fire→success rate, per-rule stats sorted by successes |
+| **Generalization** | Generalized/merged/candidate rule counts, which generalizations have fired and on which tasks |
+| **Tools** | All dynamically generated tools, whether each contributed to a solution, task associations |
+| **Cost** | Total + per-task cost, avg duration, token breakdown, API call counts |
+| **Failed** | Failed task list with cell accuracy, rounds, cost, tools tried, rules matched |
+
+### Note on result file coverage
+
+Each harness run writes results to `results.json` (or `--output <file>`). The stats reporter auto-discovers `results.json`, `results_v2_21_30.json`, `results_v2_31_35.json` in the `python/` directory and deduplicates by task ID. To include a new batch, either use the default output path or pass the file path explicitly. Tasks run before result-file persistence was added are not recoverable in structured form — consult `SOLVE_LOG.md` for narrative history of those runs.
