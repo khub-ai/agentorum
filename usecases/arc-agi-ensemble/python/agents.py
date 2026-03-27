@@ -435,7 +435,16 @@ async def run_mediator_revise(
     user_msg += (
         "The pseudo-code failed on one or more demo pairs. "
         "Please analyze the execution trace, identify what went wrong, "
-        "and produce a REVISED pseudo-code sequence."
+        "and produce a REVISED pseudo-code sequence.\n\n"
+        "**Before revising, consider:**\n"
+        "- Does the current approach assume all sources/groups are processed "
+        "simultaneously? If so, test whether a *sequential* interpretation "
+        "(one group processed first, its filled cells acting as barriers for "
+        "subsequent groups) produces different results on the failing cells. "
+        "Look for contested cells — output cells reachable from multiple sources "
+        "— and check which source's color appears there.\n"
+        "- If the same tool has failed twice, do NOT reuse it. Try a fundamentally "
+        "different decomposition."
     )
 
     text, ms = await call_agent("MEDIATOR", user_msg)
