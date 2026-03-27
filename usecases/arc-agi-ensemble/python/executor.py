@@ -23,7 +23,7 @@ from grid_tools import (
     bounding_box, unique_colors, color_count, shape,
     count_connected_components, gravity_by_type, unshear_right, barrier_beam,
     draw_lines_and_replace_intersecting_rects, recolor_by_hole_count,
-    radiate_sequences,
+    radiate_sequences, recolor_small_components,
 )
 
 
@@ -217,6 +217,10 @@ def _radiate_sequences(grid: Grid, background: int = 0, **kwargs) -> Grid:
     """Phase 1: longest sequence radiates diagonally. Phase 2: shorter sequences BFS-expand in 8 directions."""
     return radiate_sequences(grid, background=background)
 
+def _recolor_small_components(grid: Grid, background: int = 0, max_size: int = 2, new_color: int = 3, **kwargs) -> Grid:
+    """Recolor same-color connected components (4-connectivity) of size <= max_size to new_color. Default: size 1-2 → color 3."""
+    return recolor_small_components(grid, background=background, max_size=max_size, new_color=new_color)
+
 
 # Register all built-in tools (names recorded so dynamic tools cannot override them)
 for _name, _fn in [
@@ -241,6 +245,7 @@ for _name, _fn in [
     ("draw_lines_and_replace_intersecting_rects", _draw_lines_and_replace_intersecting_rects),
     ("recolor_by_hole_count", _recolor_by_hole_count),
     ("radiate_sequences", _radiate_sequences),
+    ("recolor_small_components", _recolor_small_components),
 ]:
     register_tool(_name, _fn)
     _BUILTIN_NAMES.add(_name)

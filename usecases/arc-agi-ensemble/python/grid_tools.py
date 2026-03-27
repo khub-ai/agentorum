@@ -725,6 +725,50 @@ def radiate_sequences(grid: Grid, background: int = 0, **kwargs) -> Grid:
     return result
 
 
+def recolor_small_components(
+    grid: Grid,
+    background: int = 0,
+    max_size: int = 2,
+    new_color: int = 3,
+    **kwargs,
+) -> Grid:
+    """
+    Find all connected components of same-colored non-background cells
+    (4-connectivity). Any component with <= max_size cells is recolored to
+    new_color. Larger components are left unchanged.
+
+    Default parameters match task 12eac192: components of size 1-2 → color 3.
+    MEDIATOR should infer max_size and new_color from the demos.
+    """
+    from collections import deque
+    rows = len(grid)
+    cols = len(grid[0]) if rows else 0
+    result = [row[:] for row in grid]
+    visited = [[False] * cols for _ in range(rows)]
+    for r in range(rows):
+        for c in range(cols):
+            v = grid[r][c]
+            if v == background or visited[r][c]:
+                continue
+            comp: list[tuple[int, int]] = []
+            q: deque[tuple[int, int]] = deque([(r, c)])
+            visited[r][c] = True
+            while q:
+                cr, cc = q.popleft()
+                comp.append((cr, cc))
+                for dr, dc in ((-1, 0), (1, 0), (0, -1), (0, 1)):
+                    nr, nc = cr + dr, cc + dc
+                    if (0 <= nr < rows and 0 <= nc < cols
+                            and not visited[nr][nc]
+                            and grid[nr][nc] == v):
+                        visited[nr][nc] = True
+                        q.append((nr, nc))
+            if len(comp) <= max_size:
+                for cr, cc in comp:
+                    result[cr][cc] = new_color
+    return result
+
+
 def unshear_right(grid: Grid, background: int = 0, **kwargs) -> Grid:
     """
     One-step de-shear: for each color group, keep the bottom row fixed

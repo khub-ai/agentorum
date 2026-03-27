@@ -115,7 +115,41 @@ The correct process is:
 
 **When to use `--insight` legitimately**: only to trigger preference rule extraction after a correction event — i.e., after the gap has already been repaired and the task succeeds autonomously. The insight then documents *what the system was doing wrong before the repair*, not what it should do now.
 
-### 7. Human-in-the-loop is optional and non-blocking (for hints)
+### 7. Generalization policy
+
+When a task rule is created, the post-success generalization pass asks MEDIATOR to propose broader candidate variants. Not every dimension of a rule should be generalized — the goal is to produce variants that will plausibly fire on structurally similar puzzles.
+
+**What to generalize (free parameters):**
+- Numeric thresholds that were inferred from a specific task (e.g., `max_size=2`, a particular color value)
+- Conditions that reference specific colors by value rather than by role (e.g., "color 1 and 5" → "any non-background color")
+- Positional descriptions that may not hold in all instances of the pattern class
+
+**What NOT to generalize:**
+- The core algorithm — if `recolor_small_components` is the right tool, that stays fixed
+- Conditions that are essential to discriminate this pattern from others — removing them produces a rule that fires incorrectly on unrelated tasks
+- Parameters whose variation would require a *different* tool, not just different arguments
+
+**Generalization dimensions for common pattern classes:**
+
+| Pattern class | Free parameters to generalize |
+|---|---|
+| Component-size recolor | `max_size` (threshold), `new_color`, background value |
+| Diagonal radiation | Tip direction (topmost vs bottommost), number of sequences |
+| Topology (hole count) | `object_color`, `color_map` values |
+| Gravity / sorting | Direction (up/down/left/right), object selection criterion |
+| Tiling / scaling | Scale factor, flip/rotation axis |
+| Path drawing | Marker color, line color, connection rule |
+
+**Candidate promotion policy:**
+- New generalizations enter at `status: candidate`
+- A candidate is promoted to `status: active` only after it fires and succeeds on a task different from its source task
+- A candidate is auto-deprecated after 1 failure (stricter than active rules which allow 3)
+- This prevents speculative generalizations from accumulating and polluting Round 0 matching
+
+**Avoiding over-generalization:**
+A rule that is too broad fires on tasks it cannot solve, accumulating failures and being deprecated. The right level of generality is: broad enough to cover the pattern class, specific enough to exclude unrelated patterns. When in doubt, prefer a narrower condition — it is easier to broaden later than to recover from a rule that fires incorrectly everywhere.
+
+### 8. Human-in-the-loop is optional and non-blocking (for hints)
 
 Prefilled hints (`--hypothesis`, `--insight`, `--revision-hint`) inject at checkpoints without waiting. If not provided, the system runs fully autonomously. The design intent: hints should *accelerate* convergence, not be required for correctness. A hint that is wrong can actively mislead MEDIATOR — the system does not yet have a mechanism to reject bad hints.
 
