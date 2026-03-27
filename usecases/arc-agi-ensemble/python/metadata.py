@@ -74,6 +74,7 @@ class TaskMetadata:
     dataset: str = ""
     human_hints_used: bool = False
     tools_generated: list = field(default_factory=list)   # names of dynamically created tools
+    matched_rule_ids: list = field(default_factory=list)  # rule IDs matched in Round 0
     input_tokens: int = 0
     cache_creation_tokens: int = 0
     cache_read_tokens: int = 0

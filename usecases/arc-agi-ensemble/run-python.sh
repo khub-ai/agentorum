@@ -14,4 +14,16 @@ if [ -z "$ANTHROPIC_API_KEY" ] && [ -f "$KEY_FILE" ]; then
 fi
 
 export PYTHONUTF8=1
+
+# Route --stats to the stats reporter instead of the harness
+if [[ "$*" == *"--stats"* ]]; then
+    # Strip --stats from args and pass remainder to stats.py
+    STATS_ARGS=()
+    for arg in "$@"; do
+        [[ "$arg" == "--stats" ]] && continue
+        STATS_ARGS+=("$arg")
+    done
+    exec "$PYTHON" "$SCRIPT_DIR/python/stats.py" "${STATS_ARGS[@]}"
+fi
+
 exec "$PYTHON" "$SCRIPT_DIR/python/harness.py" "$@"

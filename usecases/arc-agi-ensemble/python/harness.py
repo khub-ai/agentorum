@@ -319,7 +319,8 @@ async def main() -> None:
             "output_tokens":         meta.output_tokens,
             "api_calls":             meta.api_calls,
             "human_hints":     meta.human_hints_used,
-            "tools_generated": meta.tools_generated,
+            "tools_generated":  meta.tools_generated,
+            "matched_rule_ids": meta.matched_rule_ids,
             "model":           meta.model,
             "dataset":         meta.dataset,
         }
