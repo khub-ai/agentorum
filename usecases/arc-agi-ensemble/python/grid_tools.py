@@ -769,6 +769,109 @@ def recolor_small_components(
     return result
 
 
+def fill_blocks_from_key(grid: Grid, map_color: int = 8, background: int = 0, **kwargs) -> Grid:
+    """
+    Two-region puzzle: a small colored "key" pattern and a large "map" of map_color blocks.
+    The map's block layout matches the key's non-zero pattern rotated 90° CW.
+    Replace each map_color block with the solid color from the matching rotated-key position.
+
+    Algorithm:
+    1. Separate key cells (non-zero, non-map_color) and map cells (map_color).
+    2. Find bounding box of key → key_grid (2D array of colors).
+    3. Find bounding box of map → determine block size.
+    4. Try all 4 rotations of key (0°, 90° CW, 180°, 270° CW); find the one where
+       non-zero positions match the map's filled blocks.
+    5. Fill each map block with the color from the matching rotated key.
+    """
+    rows = len(grid)
+    cols = len(grid[0]) if rows else 0
+
+    # --- 1. Find bounding boxes ---
+    key_rows_all = [r for r in range(rows) for c in range(cols)
+                    if grid[r][c] != background and grid[r][c] != map_color]
+    key_cols_all = [c for r in range(rows) for c in range(cols)
+                    if grid[r][c] != background and grid[r][c] != map_color]
+    map_rows_all = [r for r in range(rows) for c in range(cols) if grid[r][c] == map_color]
+    map_cols_all = [c for r in range(rows) for c in range(cols) if grid[r][c] == map_color]
+
+    if not key_rows_all or not map_rows_all:
+        return [row[:] for row in grid]
+
+    kr0, kr1 = min(key_rows_all), max(key_rows_all)
+    kc0, kc1 = min(key_cols_all), max(key_cols_all)
+    mr0, mr1 = min(map_rows_all), max(map_rows_all)
+    mc0, mc1 = min(map_cols_all), max(map_cols_all)
+
+    key_h = kr1 - kr0 + 1
+    key_w = kc1 - kc0 + 1
+    map_h = mr1 - mr0 + 1
+    map_w = mc1 - mc0 + 1
+
+    # --- 2. Build key grid ---
+    key_grid = [[grid[kr0 + i][kc0 + j] for j in range(key_w)] for i in range(key_h)]
+
+    # --- 3. Determine block size ---
+    block_r = map_h // key_h if key_h > 0 else 1
+    block_c = map_w // key_w if key_w > 0 else 1
+    # If block sizes differ, try the other key dimension order
+    if block_r == 0 or block_c == 0:
+        return [row[:] for row in grid]
+
+    # --- 4. Build map block pattern ---
+    n_block_rows = map_h // block_r
+    n_block_cols = map_w // block_c
+
+    def block_is_filled(bi, bj):
+        r_start = mr0 + bi * block_r
+        c_start = mc0 + bj * block_c
+        return any(grid[r_start + dr][c_start + dc] == map_color
+                   for dr in range(block_r) for dc in range(block_c))
+
+    map_pattern = [[1 if block_is_filled(i, j) else 0
+                    for j in range(n_block_cols)]
+                   for i in range(n_block_rows)]
+
+    # --- 5. Try all 4 rotations of key ---
+    def rotate_90cw(g):
+        r, c = len(g), len(g[0])
+        return [[g[r - 1 - j][i] for j in range(r)] for i in range(c)]
+
+    def nonzero_pattern(g):
+        return [[1 if g[i][j] != 0 else 0 for j in range(len(g[0]))] for i in range(len(g))]
+
+    def matches(kg, mp):
+        if len(kg) != len(mp) or (kg and len(kg[0]) != len(mp[0])):
+            return False
+        return all(((kg[i][j] != 0) == (mp[i][j] == 1))
+                   for i in range(len(mp)) for j in range(len(mp[0])))
+
+    rotated = key_grid
+    matched_key = None
+    for _ in range(4):
+        if matches(rotated, map_pattern):
+            matched_key = rotated
+            break
+        rotated = rotate_90cw(rotated)
+
+    if matched_key is None:
+        return [row[:] for row in grid]
+
+    # --- 6. Fill blocks ---
+    result = [row[:] for row in grid]
+    for bi in range(n_block_rows):
+        for bj in range(n_block_cols):
+            color = matched_key[bi][bj]
+            if color == 0:
+                continue
+            r_start = mr0 + bi * block_r
+            c_start = mc0 + bj * block_c
+            for dr in range(block_r):
+                for dc in range(block_c):
+                    result[r_start + dr][c_start + dc] = color
+
+    return result
+
+
 def unshear_right(grid: Grid, background: int = 0, **kwargs) -> Grid:
     """
     One-step de-shear: for each color group, keep the bottom row fixed
@@ -817,6 +920,68 @@ _ANSI = {
     9: "\033[41m",   # maroon → red
 }
 _RESET = "\033[0m"
+
+def border_gravity(grid: Grid, background: int = 7, **kwargs) -> Grid:
+    """Border-color gravity: row 0 color floats UP, last-row color sinks DOWN.
+
+    Rule:
+      - The top border color is grid[0][0]; the bottom border color is grid[-1][0].
+      - Interior floating cells (rows 1..rows-2) of each border color are grouped
+        into 8-connected components.
+      - Each top-color component shifts up so its topmost row becomes row 1.
+      - Each bottom-color component shifts down so its bottommost row becomes rows-2.
+      - Border rows (0 and rows-1) are unchanged.
+      - All other interior cells become `background`.
+    """
+    arr = to_np(grid)
+    rows, cols = arr.shape
+    top_color = int(arr[0, 0])
+    bot_color = int(arr[rows - 1, 0])
+
+    def get_components(color: int):
+        pos_set = {(r, c) for r in range(1, rows - 1) for c in range(cols) if arr[r, c] == color}
+        visited: set = set()
+        comps = []
+        for start in sorted(pos_set):
+            if start in visited:
+                continue
+            comp = []
+            stack = [start]
+            while stack:
+                rc = stack.pop()
+                if rc in visited:
+                    continue
+                visited.add(rc)
+                comp.append(rc)
+                r0, c0 = rc
+                for dr in (-1, 0, 1):
+                    for dc in (-1, 0, 1):
+                        if dr == 0 and dc == 0:
+                            continue
+                        nb = (r0 + dr, c0 + dc)
+                        if nb in pos_set and nb not in visited:
+                            stack.append(nb)
+            comps.append(comp)
+        return comps
+
+    out = np.full_like(arr, background)
+    out[0] = arr[0]
+    out[rows - 1] = arr[rows - 1]
+
+    for comp in get_components(top_color):
+        min_row = min(r for r, _ in comp)
+        shift = min_row - 1
+        for r, c in comp:
+            out[r - shift, c] = top_color
+
+    for comp in get_components(bot_color):
+        max_row = max(r for r, _ in comp)
+        shift = (rows - 2) - max_row
+        for r, c in comp:
+            out[r + shift, c] = bot_color
+
+    return to_list(out)
+
 
 def grid_to_str(grid: Grid, use_ansi: bool = False) -> str:
     """Compact string representation of a grid."""

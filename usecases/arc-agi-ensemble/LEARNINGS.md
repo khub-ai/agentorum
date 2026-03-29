@@ -205,6 +205,27 @@ Rule matching uses a full LLM call because conditions are free-text. Structured 
 
 ---
 
+### 1.4 Solver uses grid-relative reference frame instead of shape-relative
+
+**Exposed by**: `13f06aa5` (marker echo rays)
+
+**Failure**: SOLVER said "the marker shoots toward the nearest grid edge" — measuring direction by which grid boundary is closest to the marker's absolute row/col. The correct rule is "the marker shoots toward the edge it faces within its own shape" — measuring direction by the marker's position relative to the shape's cells (top/bottom/left/right extremum).
+
+**Root cause**: When reasoning about direction, the solver defaults to absolute (grid-relative) measurement because it's simpler to compute. The shape-relative interpretation requires first identifying which cells belong to the enclosing shape, then finding the marker's extremum position within that set.
+
+**Fix**: Added Step 5 to solver.md analysis protocol:
+> *"When an element seems to 'point toward' or 'shoot toward' something, ask: is this measured relative to the grid, or relative to a containing shape/object? Test both interpretations against all demo pairs."*
+
+Also added the reference-frame check to the MEDIATOR revision prompt in agents.py.
+
+**Outcome**: Task solved via tool generator (MEDIATOR revised once when the initial tool failed, then produced `shoot_markers` which passed all demos). The solver's wrong hypothesis was corrected by demo-verified tool generation, not by the prompt fix directly. The prompt fix will prevent this class of error in future similar tasks.
+
+**Generalization**: Any puzzle where direction, alignment, or pointing is determined by a local/containment relationship rather than a global grid property requires this check. Relevant for: marker-relative direction puzzles, inside/outside determination, orientation of embedded shapes.
+
+**Design insight**: Two reference frames — grid-global and shape-local — can produce identical predictions on well-aligned demos and diverge on others. The solver needs to make both framings explicit and test both against all demos, rather than defaulting to whichever is simpler to compute.
+
+---
+
 ## Quick reference: failure types and their signals
 
 | Signal observed | Likely failure type | First thing to check |
@@ -216,3 +237,115 @@ Rule matching uses a full LLM call because conditions are free-text. Structured 
 | Preference rule extracts wrong lesson | Correction event timing issue | Were `failed_hypotheses.json` entries available? Did solver already have the right hypothesis in Round 1? |
 | Retry runs accumulate conflicting rules | Rule base maintenance gap | Run `auto_deprecate()`, review rules for same-task conflicts |
 | Rule fires but never succeeds | Condition too broad or action wrong | Review condition vs actual task pattern; check if action tool is correct |
+
+---
+
+## Failure type 1 (continued): Solver + MEDIATOR compounding gap — cross/plus shape completion
+
+### 1.5 Solver misidentifies changed cell type; MEDIATOR oversimplifies cross-center algorithm
+
+**Exposed by**: `14754a24` (cross/plus completion)
+**Timestamp**: 2026-03-28 ~01:00 EDT
+**Retry count**: Retry 9 (8 prior failed runs in this session)
+
+**Failure**: System failed across 8 attempts, each with a different error:
+- Early runs: SOLVER said "replace 0-valued cells with 2" — wrong cell type entirely (only 5→2 transitions occur)
+- Later runs (post transition-census fix): SOLVER identified "5-cells between two 4s in same row/col" — right cell type, wrong spatial criterion
+- Later runs (post shape-completion hint): SOLVER found "hub 4-cell with most 4-neighbors, change orth-5-neighbors" — correct for clusters where center is a 4-cell, wrong for clusters where center is a 5-cell
+- Tool generator: even with a correct solver hypothesis, generated wrong tools because MEDIATOR simplified the algorithm to "between 4s" or "adj to 4s"
+
+**Root cause (compound)**:
+1. **Solver**: No instruction to do a transition census before forming a hypothesis. Solver defaulted to describing 0-cells without checking what actually changes.
+2. **Solver**: No vocabulary for "cross/plus shape completion" pattern. Solver used "between pairs of 4s in same row/col" as a simpler approximation, missing cells that require the cross-center algorithm.
+3. **Solver**: Cross-center algorithm has TWO cases (center inside cluster vs. outside cluster). The hint described both cases but solver kept collapsing to a single "hub = 4-cell with most 4-orth-neighbors" rule which fails for Case A (diagonal clusters where center is outside the cluster).
+4. **MEDIATOR**: "Prefer simpler pseudo-code" principle caused MEDIATOR to discard the solver's correct (complex) hypothesis in favor of simpler (wrong) algorithms that covered 97% of cells but not 100%.
+5. **MEDIATOR**: No template for "cross/plus completion" tool — the behavior description it wrote was always a variation of "between 4s" or "adj to 4s."
+
+**Fix (multi-part)**:
+1. Added **transition census** instruction to solver.md Step 1: solver must list all (input_value → output_value) pairs observed before forming any hypothesis.
+2. Added **shape-completion check** to solver.md Step 2: ask whether changed cells + marker cells together form a complete geometric shape.
+3. Added **cross/plus detection** with TWO explicit cases to solver.md Step 2: Case A (center is a non-cluster cell orth-adj to all cluster cells), Case B (a cluster cell is orth-adj to all other cluster cells). With concrete examples.
+4. Added **"Shape completion"** category to solver.md's analogy lens.
+5. Added **transition-census enforcement** to agents.py MEDIATOR revision prompt: "only cells with a specific input value change; use the correct target value in tool parameters."
+6. Changed mediator.md decision principle from "prefer simpler" to **"prefer simpler CORRECT"**: a 97%-right algorithm is wrong; verify every cell.
+7. Added **cross/plus completion tool behavior template** to mediator.md: exact two-case algorithm description that the MEDIATOR should copy into its `new_tools` behavior field when it encounters this pattern.
+
+**Outcome**: Task solved on run 9. MEDIATOR generated `fill_cross_center_arms` → failed; then `fill_cross_arms_v2` → failed; then `fill_cross_center` → failed; then `fill_cross_from_markers` → CORRECT 100% | 744.5s | 6 rounds.
+
+**Generalization**: All cross/plus completion puzzles benefit from the cross-center detection algorithm. The two-case rule (center inside vs. outside cluster) is now in solver.md and mediator.md. Transition census prevents wrong-cell-type hypotheses across all task types.
+
+**Design insight**: The MEDIATOR's "prefer simpler" heuristic can be harmful when the task requires a complex but precise algorithm. A 97%-right approximation is not "simpler" — it's wrong. The mediator must verify 100% of demo cells before accepting any algorithm. Also: compound failures (solver wrong → MEDIATOR simplifies further) are harder to fix than single gaps; address each gap layer separately.
+
+---
+
+### 1.6 Tool creator uses wrong proxy check; template instruction wrong about interior content
+**Exposed by**: `14b8e18c` (closed square ring outside-corner marking)
+**Timestamp**: 2026-03-28 07:25 EDT
+**Retry count**: 4th run (3 prior failed in this session)
+
+**Failure**: The tool creator implemented "must have interior (dimensions ≥ 3)" as a proxy for "is a closed ring." This correctly excludes 2×4 non-square blocks (since they have h=2, excluded by the check) but ALSO incorrectly excludes valid 2×2 closed squares (also h=2). The correct distinguishing criterion is "bounding box must be square (h==w)", not "must have interior cells."
+
+**Root cause** (3 layers):
+1. **Solver didn't identify "square" as the constraint**: Said "closed rectangles" — correct pattern but too broad. Non-square rectangles (2×4, 1×3 lines) are excluded; only squares qualify.
+2. **Template instruction was wrong**: Added "require no interior cell is object_color" — but a large ring (e.g., 8×8) may contain other same-colored components in its interior region (they're SEPARATE components). The interior check must be component-based: "component cells == perimeter cells exactly," not "grid interior values == background."
+3. **executor.py lacked None-return handling**: A generated tool returning None instead of a grid caused an unhandled TypeError in diff_cells → crash.
+
+**Fix**:
+- `solver.md` Step 2: Added "Square vs. rectangle constraint" hint — explicitly check h==w; 2×2 is the minimum closed square.
+- `solver.md` Step 2: Added "Outside-corner marking" hint — 8 orthogonal marks per shape (2 per corner), NOT 4 diagonal marks.
+- `mediator.md`: Added closed-square-ring tool template with correct algorithm: (1) square check h==w, h≥2; (2) component cells == perimeter cells of bbox exactly; (3) do NOT check grid interior values; (4) 8 outside-corner marks.
+- `executor.py` execute_steps: If tool returns None, treat as tool error with `error="Tool returned None"` rather than crashing.
+
+**Generalization**: The "component membership check" vs. "grid value check" distinction is general: when verifying that a shape is a hollow ring, always check whether the component's own cells form the ring, not whether the interior region of the grid is background-colored. Nested objects are common in ARC.
+
+**Design insight**: Proxy checks (e.g., "has interior" as proxy for "is a valid ring") work for the majority case but fail at boundary sizes. Always derive the check from the first principles of what actually differs between qualifying and non-qualifying shapes.
+
+---
+
+## 1.7 — 15113be4 (grid key-mask block coloring)
+**Date:** 2026-03-28T18:XX EST: 2026-03-28 14:XX
+**Retry count:** 5th run (4 prior failed)
+
+### Root cause
+Tool_creator kept generating code with wrong block-boundary formula (`br*3` instead of `br*4`). Without explicit formula in the behavior description, the tool_creator assumed uniform block-size spacing (3 cells per block) rather than band-size spacing (3 cells + 1 separator = 4 per band). This caused separator columns to be treated as data, producing 4s inside data positions. Secondary issue: tool hardcoded color values observed in demo 0 (e.g., `key_color=6`) instead of computing dynamically.
+
+### Fixes applied
+
+**`prompts/solver.md` — added hint for grid-with-key-mask pattern:**
+- Described the 6×6 corner key area with 2×2 sub-blocks forming a 3×3 binary mask
+- Emphasized all-or-nothing block matching (if any mask-1 position is 0, skip block entirely)
+- Added explicit formula: "block (br,bc) starts at row=br*4, col=bc*4; band index br=r//4"
+
+**`prompts/mediator.md` — added tool template with step-by-step pseudocode:**
+- 5 explicit steps: find key_color, find key corner via `r//4` band indices, compute inner 6×6 area origin, extract 3×3 mask, apply all-or-nothing to non-key blocks
+- Key formula: `kr = 1 if min_br==0 else min_br*4` (top corners start at offset 1 due to outer border row; bottom corners start at `min_br*4` directly)
+- Explicit block formula: `rs=br*4, cs=bc*4`
+
+**`python/agents.py` — added two CRITICAL warnings to tool_generator system prompt:**
+- "NEVER hardcode color values — always compute dynamically from grid"
+- "When behavior mentions blocks separated by separator value: find separator positions by scanning; don't assume `br*block_size`. For 1-separator-wide rows: each band is block_size+1 wide, so `br*4` for 3-wide blocks with 1-col separators"
+
+### Key lesson
+When a behavior description uses natural language like "blocks separated by 4-lines," the tool_creator defaults to uniform spacing (`br*block_size`) rather than correctly accounting for separator widths. **Always include the explicit formula** (`rs=br*4`) in the behavior description. The tool_generator cannot infer separator-adjusted offsets from the grid examples alone without guidance.
+
+### Secondary lesson
+Tools from failed runs are retained in the registry with their last-attempt code. A later run may find that one of those previously-failed tools is correct and reuses it. Registry reuse can unexpectedly solve tasks: `stamp_key_pattern_v3` and `stamp_key_pattern_v4` were generated in failed earlier runs but happened to have the correct logic, and were loaded from cache on the successful 5th run.
+
+---
+
+## 1.8 — 15663ba9 (closed-loop corner convexity marking)
+**Date:** 2026-03-28
+**Retry count:** 1st run (first attempt after prompt fix)
+
+### Root cause
+No explicit hint for the closed-loop corner convexity pattern. The pattern requires: (1) detecting 90° turn cells in 1-pixel-wide closed loops, (2) classifying each turn as convex or concave by whether its inside diagonal is enclosed within the loop (interior) or not (exterior), and (3) marking convex→4, concave→2. Without a hint, the solver might only notice "corners become 4" without recognizing the concave/convex distinction.
+
+### Fix
+Added to `solver.md`: "Closed-loop corner convexity marking" hint describing the flood-fill exterior detection and inside-diagonal classification rule.
+Added to `mediator.md`: Exact 2-step behavior template — flood-fill exterior from boundary, then for each turn cell compute inside_diag and check exterior status.
+
+### Key lesson
+The inside diagonal of a 90° turn cell is always background (value 0) in both convex and concave cases — it cannot be distinguished by cell value alone. The distinguishing criterion is topological: is the inside diagonal reachable from the grid boundary through background cells? Flood-fill from boundary is the correct approach.
+
+### Design insight
+This is a 1st-run solve because the hint gave the exact algorithm. The solver reproduced it verbatim (high confidence). The mediator reused `mark_loop_corners` from the registry — a tool that had been generated in a prior failed run of a related task. This confirms that building up a registry of reusable tools accelerates solving.

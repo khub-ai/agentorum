@@ -444,7 +444,19 @@ async def run_mediator_revise(
         "Look for contested cells — output cells reachable from multiple sources "
         "— and check which source's color appears there.\n"
         "- If the same tool has failed twice, do NOT reuse it. Try a fundamentally "
-        "different decomposition."
+        "different decomposition.\n"
+        "- If the approach uses a directional rule (e.g., 'shoot toward nearest edge', "
+        "'align with top'), consider whether the direction is measured in the *grid* "
+        "reference frame (absolute row/col) or the *shape-local* reference frame "
+        "(where the marker sits within its enclosing shape — top/bottom/left/right "
+        "extremum of the shape). These produce different results when the shape is not "
+        "near the edge the marker points toward. Verify which interpretation matches "
+        "all demo pairs.\n"
+        "- **Honor the transition census.** Only cells with a specific input value change. "
+        "If the solver says only 5→2 transitions occur (for example), then your tool must "
+        "target cells with value 5, NOT cells with value 0 (background). Passing "
+        "`background=0` to a fill tool will change 0-cells, not 5-cells. Use the correct "
+        "target value in tool parameters."
     )
 
     text, ms = await call_agent("MEDIATOR", user_msg)
@@ -647,6 +659,8 @@ Requirements:
 - Return a NEW 2D list of ints — never modify the input in-place
 - Must be deterministic and handle edge cases (empty grid, single cell) gracefully
 - No docstring, no imports at module level — just the function body
+- CRITICAL: NEVER hardcode color values (like 6, 8, 3) or grid positions you observed in a specific example. Colors and key positions vary per input — always compute them dynamically from the grid.
+- CRITICAL: When the behavior mentions blocks separated by a separator value: find separator row/col POSITIONS first by scanning (e.g., rows where all values == separator), then compute band_starts as the rows/cols between separators. Do NOT assume uniform spacing like br*block_size — separators create irregular offsets (e.g., seps at rows 3,7,11,15,19 → band_starts=[0,4,8,12,16,20], NOT [0,3,6,9,12,15]).
 
 Available in scope (no need to import):
 - `np` / `numpy`: NumPy

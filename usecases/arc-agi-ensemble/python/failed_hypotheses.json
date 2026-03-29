@@ -15,18 +15,15 @@
     "There are two special-marker objects in the grid (each embedded in a shape made of a non-background color). Each special marker (the unique non-background, non-shape color cell) shoots a ray toward the nearest grid edge. The ray travels along the row (if going left/right) or column (if going up/down) from the marker to the edge. Along the ray, the marker color is placed at every other cell (i.e., "
   ],
   "14754a24": [
-    "Find each group of 4s (yellow) that forms an L-shape or cross/T-shape. For each such group, identify the 0-valued cells that are geometrically 'enclosed' or 'inside' the concave angle of the L-shape \u2014 specifically, the 0-cells that would complete a rectangle with the 4s or lie in the interior of the angle formed by the 4s. Replace those 0-valued cells with 2 (red). Cells with value 5 between 4s al"
+    "Find each group of 4-cells that forms a partial plus/cross pattern (exactly 3 arms around a center, or a center plus 3 arms). For each such group: identify the center cell C (the cell orthogonally adjacent to all 3 or 4 of the cluster's 4-cells, or the 4-cell itself that is adjacent to all others). The complete cross consists of C and its 4 orthogonal neighbors. Among these 5 positions, any cell t"
   ],
   "14b8e18c": [
-    "For each closed rectangular shape (either a hollow rectangle with a complete border of non-background color, or a solid filled rectangle) in the grid: place a red (2) cell diagonally just outside each of its 4 corners. If the rectangle's top-left corner is at (r1,c1) and bottom-right corner at (r2,c2), place 2s at positions (r1-1, c1-1), (r1-1, c2+1), (r2+1, c1-1), and (r2+1, c2+1), provided those"
+    "Identify all closed rectangular shapes (hollow rings where the perimeter is fully filled with the object color, or solid filled blocks) in the input. For each qualifying shape with bounding box rows r1..r2, cols c1..c2, place color 2 at exactly 8 positions: (r1-1, c1), (r1-1, c2), (r2+1, c1), (r2+1, c2) [above/below the corner columns], and (r1, c1-1), (r1, c2+1), (r2, c1-1), (r2, c2+1) [left/righ"
   ],
   "15113be4": [
-    "The grid is divided into 3\u00d73-cell sub-grids separated by rows/columns of 4s. One region contains a special color (not 0, 1, or 4) forming a pattern within a bordered 6\u00d76 area (using 2\u00d72 blocks to represent each of 9 positions in a 3\u00d73 matrix). This special shape encodes a 3\u00d73 binary mask \u2014 each 2\u00d72 block of the special color = 1, each 2\u00d72 block of 0s = 0. In the output, the special shape region is"
+    "The 23\u00d723 grid is divided into 3\u00d73 data blocks by separator lines (value 4) at rows and cols 3,7,11,15,19, giving band_starts=[0,4,8,12,16,20]. One block area (spanning 2\u00d72 block positions) contains the 'key' using a special color. The key encodes a 3\u00d73 binary mask: each 2\u00d72 sub-block within the 6\u00d76 key area is '1' (mask-on) if it contains the special color, '0' otherwise. For every other (non-key"
   ],
   "15663ba9": [
     "For each colored (non-zero, non-background) cell in the shape: (1) If the cell has exactly 2 colored orthogonal neighbors and those 2 neighbors are perpendicular (one horizontal, one vertical neighbor) \u2014 i.e., it's a convex corner/elbow tip \u2014 replace it with 4 (yellow). (2) If the cell has exactly 2 colored orthogonal neighbors that are perpendicular AND the cell is at a concave notch position (i."
-  ],
-  "17829a00": [
-    "The grid has a solid-color top border row and a solid-color bottom border row. All interior cells (rows 1-14) of the top border color gravitate (compact) toward the top within each column, and all interior cells of the bottom border color gravitate (compact) toward the bottom within each column. Background (7) cells fill the remaining space. The border rows themselves remain unchanged. Each column"
   ]
 }

@@ -80,8 +80,10 @@ class FiringResult:
 # ---------------------------------------------------------------------------
 
 class RuleEngine:
-    def __init__(self, path: str | Path | None = None):
+    def __init__(self, path: str | Path | None = None,
+                 dataset_tag: str = "arc-agi-legacy"):
         self.path = Path(path or os.environ.get("RULES_FILE", DEFAULT_PATH))
+        self.dataset_tag = dataset_tag   # namespace tag for this run
         self._data: dict[str, Any] = self._load()
 
     # ------------------------------------------------------------------
@@ -135,6 +137,34 @@ class RuleEngine:
         self._data = self._load()
 
     # ------------------------------------------------------------------
+    # Namespace helpers
+    # ------------------------------------------------------------------
+
+    def _ns_stats(self, rule: dict) -> dict:
+        """Return the stats dict for the current namespace.
+
+        Prefers stats_by_ns[dataset_tag] when present; falls back to legacy
+        flat stats so old data continues to work during migration.
+        """
+        if "stats_by_ns" in rule and self.dataset_tag:
+            return rule["stats_by_ns"].get(
+                self.dataset_tag, {"fires": 0, "successes": 0, "failures": 0}
+            )
+        # Legacy flat stats
+        s = rule.get("stats", {})
+        return {
+            "fires":     s.get("fired", 0),
+            "successes": s.get("succeeded", 0),
+            "failures":  s.get("failed", 0),
+        }
+
+    def _rule_in_ns(self, rule: dict) -> bool:
+        """True if this rule should be active in the current namespace."""
+        if rule.get("scope", "dataset") == "global":
+            return True
+        return self.dataset_tag in rule.get("tags", [])
+
+    # ------------------------------------------------------------------
     # Read
     # ------------------------------------------------------------------
 
@@ -149,9 +179,17 @@ class RuleEngine:
         return None
 
     def active_rules(self) -> list[dict]:
-        """Return all rules that are not deprecated (both task and preference types).
-        Includes 'active' and 'candidate' rules."""
-        return [r for r in self.rules if r.get("status", "active") in ("active", "candidate")]
+        """Return rules that are usable in the current namespace.
+
+        Includes 'active', 'candidate', and 'flagged' rules whose scope/tags
+        match the current dataset_tag (or scope == 'global').
+        Excludes 'deprecated' and 'archived' rules.
+        """
+        return [
+            r for r in self.rules
+            if r.get("status", "active") in ("active", "candidate", "flagged")
+            and self._rule_in_ns(r)
+        ]
 
     def active_task_rules(self) -> list[dict]:
         """Return active + candidate task rules (matched per-puzzle in Round 0)."""
@@ -168,17 +206,21 @@ class RuleEngine:
     def stats_summary(self) -> dict[str, Any]:
         all_rules = self.rules
         total = len(all_rules)
-        confirmed = [r for r in all_rules if r.get("status", "active") == "active"]
+        confirmed  = [r for r in all_rules if r.get("status", "active") == "active"]
         candidates = self.candidate_rules()
+        flagged    = [r for r in all_rules if r.get("status") == "flagged"]
         deprecated = [r for r in all_rules if r.get("status") == "deprecated"]
-        fired = sum(r["stats"]["fired"] for r in confirmed + candidates)
-        succeeded = sum(r["stats"]["succeeded"] for r in confirmed + candidates)
+        archived   = [r for r in all_rules if r.get("status") == "archived"]
+        fired     = sum(self._ns_stats(r)["fires"]     for r in confirmed + candidates)
+        succeeded = sum(self._ns_stats(r)["successes"] for r in confirmed + candidates)
         return {
-            "total": total,
-            "active": len(confirmed),
-            "candidates": len(candidates),
-            "deprecated": len(deprecated),
-            "total_fired": fired,
+            "total":           total,
+            "active":          len(confirmed),
+            "candidates":      len(candidates),
+            "flagged":         len(flagged),
+            "deprecated":      len(deprecated),
+            "archived":        len(archived),
+            "total_fired":     fired,
             "total_succeeded": succeeded,
         }
 
@@ -210,6 +252,7 @@ class RuleEngine:
         lineage: dict | None = None,
         rule_type: str = "task",
         status: str = "active",
+        scope: str = "dataset",
     ) -> dict:
         """
         Create a new rule and persist it.
@@ -242,17 +285,26 @@ class RuleEngine:
         Returns:
             The newly created rule dict.
         """
+        # Auto-tag with the current dataset namespace
+        tags_list = list(tags or [])
+        if self.dataset_tag and self.dataset_tag not in tags_list:
+            tags_list.append(self.dataset_tag)
+
         rule = {
             "id": self._next_id(),
             "condition": condition,
             "action": action,
             "rule_type": rule_type,
-            "stats": {"fired": 0, "succeeded": 0, "failed": 0},
+            "scope": scope,
+            "stats_by_ns": {
+                self.dataset_tag: {"fires": 0, "successes": 0, "failures": 0}
+            } if self.dataset_tag else {},
             "source": source,
             "source_task": source_task,
-            "tags": tags or [],
+            "tags": tags_list,
             "lineage": lineage or {"type": "new", "parent_ids": [], "reason": ""},
             "status": status,
+            "tasks_seen": 0,
             "created": self._now_iso(),
             "last_fired": None,
         }
@@ -349,17 +401,62 @@ class RuleEngine:
     def record_success(self, rule_id: str, task_id: str) -> None:
         r = self.get(rule_id)
         if r:
-            r["stats"]["fired"] += 1
-            r["stats"]["succeeded"] += 1
+            ns = r.setdefault("stats_by_ns", {}).setdefault(
+                self.dataset_tag, {"fires": 0, "successes": 0, "failures": 0}
+            )
+            ns["fires"] += 1
+            ns["successes"] += 1
             r["last_fired"] = self._now_iso()
+            # Track which tasks fired this rule (capped at 200 to avoid unbounded growth)
+            fired_on: list = r.setdefault("fired_on", [])
+            if task_id not in fired_on:
+                fired_on.append(task_id)
+                if len(fired_on) > 200:
+                    r["fired_on"] = fired_on[-200:]
+            # Promote candidate on first independent success
+            if r.get("status") == "candidate":
+                r["status"] = "active"
+            # Unflag on success
+            elif r.get("status") == "flagged":
+                r["status"] = "active"
+                r.pop("flagged_reason", None)
             self.save()
 
     def record_failure(self, rule_id: str, task_id: str) -> None:
         r = self.get(rule_id)
         if r:
-            r["stats"]["fired"] += 1
-            r["stats"]["failed"] += 1
+            ns = r.setdefault("stats_by_ns", {}).setdefault(
+                self.dataset_tag, {"fires": 0, "successes": 0, "failures": 0}
+            )
+            ns["fires"] += 1
+            ns["failures"] += 1
             r["last_fired"] = self._now_iso()
+            # Track which tasks fired this rule
+            fired_on: list = r.setdefault("fired_on", [])
+            if task_id not in fired_on:
+                fired_on.append(task_id)
+                if len(fired_on) > 200:
+                    r["fired_on"] = fired_on[-200:]
+            self.save()
+
+    def increment_tasks_seen(self, fired_ids: Optional[set] = None) -> None:
+        """Increment tasks_seen for every active rule in this namespace.
+
+        Called once per task run (after stats are recorded) so that the
+        staleness pruner can tell how long each rule has gone without firing.
+        Rules that fired this task get their tasks_seen incremented too — the
+        counter just means 'this rule has been eligible N times.'
+
+        Args:
+            fired_ids: set of rule IDs that fired on this task (not used for
+                       staleness; kept as a parameter for future per-rule
+                       breakdowns).
+        """
+        changed = False
+        for r in self.active_rules():
+            r["tasks_seen"] = r.get("tasks_seen", 0) + 1
+            changed = True
+        if changed:
             self.save()
 
     def deprecate_rule(self, rule_id: str, reason: str = "") -> None:
@@ -369,11 +466,35 @@ class RuleEngine:
             r["deprecated_reason"] = reason
             self.save()
 
+    def archive_rule(self, rule_id: str, reason: str = "") -> None:
+        r = self.get(rule_id)
+        if r:
+            r["status"] = "archived"
+            r["archived_reason"] = reason
+            self.save()
+
+    def flag_rule(self, rule_id: str, reason: str = "") -> None:
+        """Mark a rule as flagged (poor performance, under review)."""
+        r = self.get(rule_id)
+        if r and r.get("status") == "active":
+            r["status"] = "flagged"
+            r["flagged_reason"] = reason
+            self.save()
+
+    def unflag_rule(self, rule_id: str) -> None:
+        """Manually restore a flagged rule to active."""
+        r = self.get(rule_id)
+        if r and r.get("status") == "flagged":
+            r["status"] = "active"
+            r.pop("flagged_reason", None)
+            self.save()
+
     def reactivate_rule(self, rule_id: str) -> None:
         r = self.get(rule_id)
         if r:
             r["status"] = "active"
             r.pop("deprecated_reason", None)
+            r.pop("flagged_reason", None)
             self.save()
 
     def promote_candidate(self, rule_id: str) -> bool:
@@ -388,24 +509,71 @@ class RuleEngine:
             return True
         return False
 
-    def auto_deprecate(self, min_fired: int = 3) -> list[str]:
-        """Deprecate rules that have been fired but never succeeded.
+    def auto_deprecate(self, min_fired: int = 10,
+                       stale_flag: int = 50, stale_deprecate: int = 100) -> list[str]:
+        """Flag or deprecate rules based on namespace performance and staleness.
 
-        Active rules: deprecated after min_fired failures with 0 successes.
-        Candidate rules: deprecated after just 1 failure (they haven't been
-        confirmed yet, so a failure is strong evidence the generalization is wrong).
+        Performance pruning (per-namespace stats):
+          - Candidates: deprecated after 1 failure (unconfirmed generalization).
+          - Active: deprecated if fires >= min_fired and 0 successes.
+          - Active: flagged  if fires >= 5 and success_rate < 20%.
 
-        Returns list of deprecated rule IDs.
+        Staleness pruning (tasks_seen counter):
+          - tasks_seen >= stale_deprecate and 0 fires → deprecate.
+          - tasks_seen >= stale_flag      and 0 fires → flag.
+
+        Returns list of rule IDs that were deprecated or newly flagged.
         """
-        deprecated = []
-        for r in self.active_rules():
-            s = r["stats"]
+        changed: list[str] = []
+        for r in self.active_rules():   # namespace-filtered already
+            ns        = self._ns_stats(r)
+            fires     = ns["fires"]
+            successes = ns["successes"]
+            seen      = r.get("tasks_seen", 0)
             is_candidate = r.get("status") == "candidate"
-            threshold = 1 if is_candidate else min_fired
-            if s["fired"] >= threshold and s["succeeded"] == 0:
-                self.deprecate_rule(r["id"], reason=f"auto: fired {s['fired']}x, 0 successes (candidate={is_candidate})")
-                deprecated.append(r["id"])
-        return deprecated
+
+            if is_candidate:
+                if fires >= 1 and successes == 0:
+                    self.deprecate_rule(
+                        r["id"],
+                        reason=f"auto: candidate fired {fires}x, 0 successes",
+                    )
+                    changed.append(r["id"])
+                    continue
+
+            # Staleness checks (skip candidates — they're new by definition)
+            if not is_candidate and fires == 0:
+                if seen >= stale_deprecate:
+                    self.deprecate_rule(
+                        r["id"],
+                        reason=f"auto: stale — 0 fires after {seen} tasks seen",
+                    )
+                    changed.append(r["id"])
+                    continue
+                elif seen >= stale_flag and r.get("status") == "active":
+                    self.flag_rule(
+                        r["id"],
+                        reason=f"auto: stale — 0 fires after {seen} tasks seen",
+                    )
+                    changed.append(r["id"])
+                    continue
+
+            # Performance checks
+            if not is_candidate:
+                sr = successes / fires if fires > 0 else 0.5
+                if fires >= min_fired and successes == 0:
+                    self.deprecate_rule(
+                        r["id"],
+                        reason=f"auto: fired {fires}x, 0 successes",
+                    )
+                    changed.append(r["id"])
+                elif fires >= 5 and sr < 0.20 and r.get("status") == "active":
+                    self.flag_rule(
+                        r["id"],
+                        reason=f"auto: fired {fires}x, success rate {sr:.0%}",
+                    )
+                    changed.append(r["id"])
+        return changed
 
     def edit_rule(self, rule_id: str, condition: str = "", action: str = "") -> None:
         """Human-driven edit of a rule's condition or action."""
@@ -418,28 +586,127 @@ class RuleEngine:
             self.save()
 
     # ------------------------------------------------------------------
+    # Redundancy detection (Jaccard overlap on fired_on lists)
+    # ------------------------------------------------------------------
+
+    def find_redundant_pairs(self, threshold: float = 0.5) -> list[dict]:
+        """Find pairs of active task rules that fire on nearly the same tasks.
+
+        Uses Jaccard similarity on the fired_on task-ID lists.  A pair with
+        J >= threshold is a merge/deprecation candidate.
+
+        Returns a list of dicts:
+            {"rule_a": id, "rule_b": id, "jaccard": float,
+             "shared": N, "union": N, "suggestion": str}
+        """
+        active = [r for r in self.active_task_rules()
+                  if len(r.get("fired_on", [])) >= 3]   # need enough data
+        pairs = []
+        for i, a in enumerate(active):
+            set_a = set(a.get("fired_on", []))
+            for b in active[i + 1:]:
+                set_b = set(b.get("fired_on", []))
+                union = set_a | set_b
+                if not union:
+                    continue
+                shared = set_a & set_b
+                j = len(shared) / len(union)
+                if j >= threshold:
+                    sr_a = self._success_rate(a)
+                    sr_b = self._success_rate(b)
+                    suggestion = (
+                        f"merge into one rule"
+                        if abs(sr_a - sr_b) < 0.15
+                        else f"deprecate {a['id'] if sr_a < sr_b else b['id']} "
+                             f"(lower success rate)"
+                    )
+                    pairs.append({
+                        "rule_a":   a["id"],
+                        "rule_b":   b["id"],
+                        "jaccard":  round(j, 3),
+                        "shared":   len(shared),
+                        "union":    len(union),
+                        "suggestion": suggestion,
+                    })
+        return sorted(pairs, key=lambda p: p["jaccard"], reverse=True)
+
+    # ------------------------------------------------------------------
+    # Two-stage matching helpers
+    # ------------------------------------------------------------------
+
+    _CATEGORY_RE = re.compile(r"^\[([^\]]+)\]", re.IGNORECASE)
+
+    def _rule_categories(self) -> dict[str, list[str]]:
+        """Return {category: [rule_id, ...]} from active task rules."""
+        mapping: dict[str, list[str]] = {}
+        for r in self.active_task_rules():
+            m = self._CATEGORY_RE.match(r.get("condition", ""))
+            cat = m.group(1).lower().strip() if m else "other"
+            mapping.setdefault(cat, []).append(r["id"])
+        return mapping
+
+    def build_category_filter_prompt(self, task_text: str) -> str:
+        """Stage-1 prompt: ask the LLM which categories are relevant.
+
+        Returns a compact prompt (much cheaper than the full rule list).
+        """
+        cat_map = self._rule_categories()
+        categories = sorted(cat_map.keys())
+        if not categories:
+            return ""
+        cat_line = ", ".join(f'"{c}" ({len(cat_map[c])} rules)' for c in categories)
+        return (
+            "You are a rule pre-filter. Given the ARC-AGI puzzle below, "
+            "select which transformation categories are most likely relevant.\n\n"
+            f"Available categories: {cat_line}\n\n"
+            f"{task_text}\n\n"
+            "Reply with a JSON block listing the relevant categories (≤5):\n"
+            "```json\n"
+            '{"categories": ["gravity", "path-drawing"]}\n'
+            "```\n"
+            "If none clearly match, return an empty list."
+        )
+
+    def filter_rules_by_categories(self, category_response: str,
+                                    max_rules: int = 25) -> list[dict]:
+        """Parse the stage-1 LLM response and return the filtered rule subset.
+
+        Falls back to top-N rules by success rate if parsing fails or the
+        filtered set is empty.
+        """
+        cat_map = self._rule_categories()
+        block_re = re.compile(r"```(?:json)?\s*(.*?)\s*```", re.DOTALL | re.IGNORECASE)
+        chosen: set[str] = set()
+        for raw in block_re.findall(category_response):
+            try:
+                obj = json.loads(raw)
+                if isinstance(obj, dict) and "categories" in obj:
+                    for c in obj["categories"]:
+                        chosen.update(cat_map.get(c.lower().strip(), []))
+                    break
+            except (json.JSONDecodeError, Exception):
+                continue
+
+        if chosen:
+            rules = [r for r in self.active_task_rules() if r["id"] in chosen]
+        else:
+            # Fallback: top-N by success rate (prefer rules with a track record)
+            rules = sorted(self.active_task_rules(),
+                           key=lambda r: (self._success_rate(r), self._ns_stats(r)["fires"]),
+                           reverse=True)
+
+        return rules[:max_rules]
+
+    # ------------------------------------------------------------------
     # Match (LLM-based)
     # ------------------------------------------------------------------
 
     def format_rules_for_matching(self) -> str:
-        """
-        Build a prompt fragment listing active task rules for the LLM to evaluate.
-        Only task rules are matched per-puzzle; preference rules are applied globally.
-        Returns a numbered list the LLM can reference by ID.
-        """
+        """Build a prompt fragment listing active task rules for the LLM to evaluate."""
         active = self.active_task_rules()
         if not active:
             return "(no rules in the rule base)"
-        lines = []
-        for r in active:
-            sr = self._success_rate(r)
-            label = " ⚠ CANDIDATE (unconfirmed generalization)" if r.get("status") == "candidate" else ""
-            lines.append(
-                f"- [{r['id']}]{label} (success {sr:.0%}, fired {r['stats']['fired']}x)\n"
-                f"  CONDITION: {r['condition']}\n"
-                f"  ACTION: {r['action']}"
-            )
-        return "\n".join(lines)
+        return self._format_rules_list(active)
 
     def format_preference_rules_for_solver(self) -> str:
         """
@@ -480,18 +747,20 @@ class RuleEngine:
         lines = ["## Applicable Rules (from prior experience)\n"]
         for m in top:
             sr = self._success_rate(m.rule)
+            fires = self._ns_stats(m.rule)["fires"]
             lines.append(
                 f"- **{m.rule['id']}** (confidence: {m.confidence}, "
-                f"success rate: {sr:.0%})\n"
+                f"success rate: {sr:.0%}, fired {fires}x)\n"
                 f"  {m.rule['action']}"
             )
         return "\n".join(lines)
 
     def _success_rate(self, rule: dict) -> float:
-        s = rule["stats"]
-        if s["fired"] == 0:
+        ns = self._ns_stats(rule)
+        fires = ns["fires"]
+        if fires == 0:
             return 0.5  # neutral prior for untested rules
-        return s["succeeded"] / s["fired"]
+        return ns["successes"] / fires
 
     def rank_matches(self, matches: list[RuleMatch]) -> list[RuleMatch]:
         """Sort matches by combined score (match confidence × success rate)."""
@@ -621,11 +890,19 @@ class RuleEngine:
     # Prompt builders
     # ------------------------------------------------------------------
 
-    def build_match_prompt(self, task_text: str) -> str:
+    def build_match_prompt(self, task_text: str,
+                            rules_subset: list[dict] | None = None) -> str:
+        """Build the user message for the rule-matching LLM call.
+
+        Args:
+            task_text:     Formatted puzzle description.
+            rules_subset:  If given, match only against these rules instead of
+                           the full active set (used in two-stage retrieval).
         """
-        Build the user message for the rule-matching LLM call.
-        """
-        rules_listing = self.format_rules_for_matching()
+        if rules_subset is not None:
+            rules_listing = self._format_rules_list(rules_subset)
+        else:
+            rules_listing = self.format_rules_for_matching()
         return (
             "You are a rule matcher. Given the ARC-AGI puzzle below and a list of "
             "rules, determine which rules' conditions match this puzzle.\n\n"
@@ -639,6 +916,28 @@ class RuleEngine:
             "```\n"
             "If no rules match, return an empty matches array."
         )
+
+    def _format_rules_list(self, rules: list[dict]) -> str:
+        """Format an arbitrary list of rules for a matching prompt."""
+        if not rules:
+            return "(no rules)"
+        lines = []
+        for r in rules:
+            sr    = self._success_rate(r)
+            fires = self._ns_stats(r)["fires"]
+            status = r.get("status", "active")
+            if status == "candidate":
+                label = " [CANDIDATE - unconfirmed]"
+            elif status == "flagged":
+                label = " [FLAGGED - low success rate]"
+            else:
+                label = ""
+            lines.append(
+                f"- [{r['id']}]{label} (success {sr:.0%}, fired {fires}x)\n"
+                f"  CONDITION: {r['condition']}\n"
+                f"  ACTION: {r['action']}"
+            )
+        return "\n".join(lines)
 
     def build_mediator_rule_section(self, fired: list[RuleMatch],
                                      success: bool) -> str:
@@ -654,9 +953,10 @@ class RuleEngine:
             parts.append("### Existing rules (check before creating new ones)\n")
             for r in all_active:
                 sr = self._success_rate(r)
+                fires = self._ns_stats(r)["fires"]
                 rtype = r.get("rule_type", "task")
                 parts.append(
-                    f"- [{r['id']}] type={rtype} tags={r.get('tags',[])} success={sr:.0%} fired={r['stats']['fired']}x\n"
+                    f"- [{r['id']}] type={rtype} tags={r.get('tags',[])} success={sr:.0%} fired={fires}x\n"
                     f"  CONDITION: {r['condition']}\n"
                     f"  ACTION: {r['action'][:120]}"
                 )

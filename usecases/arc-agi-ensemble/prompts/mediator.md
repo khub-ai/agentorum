@@ -55,6 +55,7 @@ Each tool takes a grid and returns a transformed grid:
 | `recolor_by_hole_count` | `color_map` (required), `object_color` (default 8), `background` (default 0) | Recolor each connected component of `object_color` cells by the number of enclosed topological holes it contains. **You MUST pass `color_map`**: examine the demo pairs, count holes per object, observe the output color for each hole-count, and build the mapping. Example: if 0-hole objects → color 5, 1-hole objects → color 2, 2-hole objects → color 9, pass `color_map={0: 5, 1: 2, 2: 9}`. Without `color_map` the tool uses fallback defaults that will not match task-specific colors. |
 | `recolor_small_components` | `background` (default 0), `max_size` (default 2), `new_color` (default 3) | Find all connected components of same-colored non-background cells (4-connectivity). Any component with ≤ `max_size` cells is recolored to `new_color`; larger components are left unchanged. **Infer `max_size` and `new_color` from the demos**: identify which cells changed vs stayed, then determine the size threshold that separates them. |
 | `radiate_sequences` | `background` (default 0) | For puzzles with multiple linear non-zero sequences (connected orthogonal groups). **Phase 1**: the *longest* sequence radiates each cell's color outward along all 4 diagonal directions (NW/NE/SW/SE), processing cells tip-to-end (topmost/leftmost first). Radiation stops when hitting any non-background cell or grid boundary. **Phase 2**: each shorter sequence BFS-expands in all 8 directions, filling only background cells; cells claimed by Phase 1 act as natural barriers. Use this when the grid contains one dominant spine sequence plus peripheral shorter sequences, and the output shows diagonal stripes from the spine with the shorter sequences filling the remaining space. |
+| `fill_blocks_from_key` | `map_color` (default 8), `background` (default 0) | Two-region puzzle: a small colored "key" pattern and a large pattern of uniform `map_color` blocks arranged in a grid. The block layout matches the key's non-zero positions (possibly rotated). Automatically tries all 4 rotations (0°/90°/180°/270° CW) to find the matching one, then fills each block with the solid color from the matching rotated key. Use when you see a compact colored key + a larger region of equal-sized solid blocks that encode the key structure. |
 
 Tools are applied sequentially: each step receives the output of the previous step.
 
@@ -155,11 +156,67 @@ The system will generate the Python implementation, register it, and re-run your
 - The transformation requires sorting/grouping objects by computed properties
 - The needed operation is fundamentally different from any existing tool
 
+**Closed-loop corner convexity marking** — when the solver identifies 1-pixel-wide closed loop shapes where 90° turn cells are marked as convex (→4) or concave (→2) based on whether the inside diagonal is enclosed or exterior, use this EXACT behavior description for the new tool:
+> "Step 1 — flood-fill exterior: starting from every background (0) cell on the grid boundary, flood-fill (4-connectivity) through all background cells. Mark all reached background cells as 'exterior'. All unreached background cells are 'interior' (enclosed by a loop).
+>
+> Step 2 — for each non-background cell at (r,c):
+>   a) Count orthogonal path-neighbors: cells at (r-1,c),(r+1,c),(r,c-1),(r,c+1) that are non-zero.
+>   b) If neighbor count != 2: leave cell unchanged (straight segment or junction).
+>   c) If neighbor count == 2: let directions be (dr1,dc1) and (dr2,dc2).
+>      If collinear (both vertical or both horizontal): leave unchanged.
+>      If perpendicular (one vertical, one horizontal — a 90° turn):
+>        inside_diag_r = r + dr1 + dr2; inside_diag_c = c + dc1 + dc2
+>        If inside_diag is out of bounds OR exterior: result[r][c] = 2 (concave corner)
+>        Else (interior): result[r][c] = 4 (convex corner)"
+
+**Two-divider beam projection** — when the solver identifies a grid with one full-length all-8s line and one full-length all-2s line (parallel, both rows or both cols), 4-shapes on the outer side of the 8-line, and 2-shapes between the 8-line and 2-line, use this EXACT behavior description for the new tool:
+> "Step 1 — find line_8: scan rows; if any row has ALL cells == 8, set r8=that row, orientation='horizontal'. Else scan cols; if any col has all cells == 8, set c8=that col, orientation='vertical'.
+>
+> Step 2 — find line_2: same scan for all cells == 2; gives r2 or c2.
+>
+> Step 3 — determine sides and far_edge:
+> - orientation='vertical': 4-side = the column-side of c8 containing any 4-cells. 2-side = the other side (between c8 and c2). far_edge = 0 if 2-side is left (c2 < c8), else cols-1.
+> - orientation='horizontal': same logic using r8, r2, rows.
+>
+> Step 4 — process each affected row (vertical) or col (horizontal):
+> For orientation='vertical', for each row r (0..rows-1):
+>   - 4_cols = [c for c where grid[r][c]==4 and c is on the 4-side of c8]
+>   - If 4_cols is empty: skip (leave row unchanged)
+>   - If 4_cols non-empty:
+>     a) Set result[r][c] = 3 for each c in 4_cols (shadow)
+>     b) near_4 = the 4-col closest to c8 (max c if 4-side is left, min c if 4-side is right)
+>        Fill toward c8: set result[r][c] = 4 for each col strictly between near_4 and c8 (exclusive of c8)
+>     c) result[r][c8] = 8 (8-line stays)
+>     d) W = count of cells in row r on the 2-side where grid[r][col]==2 (all 2-cells including the 2-line cell)
+>     e) Place W 2-cells at far_edge: if far_edge==cols-1, set result[r][cols-1]=2, result[r][cols-2]=2, ..., result[r][cols-W]=2; if far_edge==0, set result[r][0]=2, result[r][1]=2, ..., result[r][W-1]=2
+>     f) Fill 8 from c8 toward far_edge up to (but not including) the placed 2-cells:
+>        if far_edge==cols-1: set result[r][c] = 8 for c in range(c8+1, cols-W)
+>        if far_edge==0: set result[r][c] = 8 for c in range(W, c8)  [result[r][c8] already set to 8 in step c]
+>
+> For orientation='horizontal', apply the same logic transposed: process each col c, replace 'row r' with 'col c', replace col operations with row operations."
+
+**Closed square ring marking** — when the solver identifies that square-shaped objects (hollow rings or 2×2 solid blocks) have their outside corners marked, use this EXACT behavior description for the new tool:
+> "Find all connected components of `object_color` (4-connectivity). For each component: (1) compute bounding box (r1, r2, c1, c2); (2) compute h = r2-r1+1, w = c2-c1+1; require h == w and h >= 2 (must be square, at least 2×2); (3) compute the expected perimeter cell set: all cells (r,c) where r==r1 OR r==r2 OR c==c1 OR c==c2, with r1<=r<=r2 and c1<=c<=c2; this set has size 2*h+2*w-4 (for h>=3) or h*w for h==2 (the 2×2 degenerate case has no interior cells so perimeter = all cells); (4) require that EVERY component cell is in the perimeter set AND EVERY perimeter cell is in the component — i.e., component == perimeter set exactly. CRITICAL: do NOT check interior grid values (grid[r][c]) since a large ring may contain other same-colored objects in its interior region; only check that the component cells form the ring shape; (5) if all checks pass: place `marker_color` at the 8 outside-corner cells: (r1-1,c1), (r1,c1-1) for top-left; (r1-1,c2), (r1,c2+1) for top-right; (r2+1,c1), (r2,c1-1) for bottom-left; (r2+1,c2), (r2,c2+1) for bottom-right — only mark cells that are within grid bounds."
+
+**Cross/plus shape completion** — when the solver identifies that marker cells (e.g., value 4) form incomplete plus/cross shapes, use this EXACT behavior description for the new tool:
+> "For each 8-connected cluster of marker cells: (Case A) if no cluster cell is orthogonally adjacent to all other cluster cells, find the unique non-cluster cell that IS orth-adjacent to all cluster cells — that is the center C; (Case B) if a cluster cell is orth-adjacent to all other cluster cells, that cluster cell is the center C. The 5 cross positions = {C, one step up, one step down, one step left, one step right from C}. For each cross position that contains fill_color (e.g., value 5), change it to output_color (e.g., value 2). Cells with value 0 (background) or marker_color are never changed."
+
+**Grid-with-key-mask block coloring** — when the solver identifies a 23×23 grid with a 6×6 corner key area (a non-background color arranged as 2×2 sub-blocks encoding a 3×3 binary mask), and the transformation colors 1-cells in matching data blocks, use this EXACT behavior description for the new tool. Include these 5 steps verbatim in the `behavior` field:
+> "Step 1 — find key_color: scan grid cells; key_color = first value not in {0, 1, 4}.
+>
+> Step 2 — find key corner band indices using integer division: for each key_color cell at (r,c), compute br=r//4, bc=c//4 (band index = row divided by 4, integer division). min_br = min over all key_color cells; min_bc = min over all. Key block bands are (min_br, min_br+1) for rows and (min_bc, min_bc+1) for cols.
+>
+> Step 3 — compute inner 6×6 key area origin: kr = 1 if min_br==0 else min_br*4; kc = 1 if min_bc==0 else min_bc*4. (Top-left/top-right corners start at row/col 1 because row 0/col 0 is the outer 4-border; bottom corners start at min_br*4 directly.)
+>
+> Step 4 — extract 3×3 mask: for i in 0,1,2 and j in 0,1,2: M[i][j]=1 if grid[kr+i*2][kc+j*2]==key_color OR grid[kr+i*2][kc+j*2+1]==key_color OR grid[kr+i*2+1][kc+j*2]==key_color OR grid[kr+i*2+1][kc+j*2+1]==key_color, else 0. mask1 = list of (i,j) where M[i][j]==1.
+>
+> Step 5 — apply all-or-nothing to data blocks: CRITICAL: block (br,bc) starts at row rs=br*4, col cs=bc*4 (each band is 4 wide: 3 data rows + 1 separator). For br in 0..5, bc in 0..5: skip if br in {min_br, min_br+1} AND bc in {min_bc, min_bc+1} (key corner). Otherwise: if ALL grid[rs+i][cs+j]==1 for (i,j) in mask1, THEN set result[rs+i][cs+j]=key_color for each (i,j) in mask1. If even one mask1 position has grid[rs+i][cs+j]!=1, leave entire block unchanged."
+
 **Do not** request a new tool if the transformation can be expressed as a sequence of existing tools.
 
 ## Decision principles
 
-- **Verify, don't trust**: always trace the proposed rule through demo pairs yourself — don't assume the solver is right
-- **Prefer the simpler pseudo-code** — ARC tasks have elegant solutions
+- **Verify, don't trust**: always trace the proposed rule through demo pairs yourself — don't assume the solver is right. Verify EVERY changed cell — a rule that covers 97% of changes is still wrong if it misses 3%. Do not accept a rule that fails on even one demo cell.
+- **Prefer the simpler correct pseudo-code** — ARC tasks have elegant solutions, but elegance does not mean approximation. A simpler algorithm that misses cells is not elegant; it is wrong. If the solver's hypothesis has more complex logic (e.g., a two-case center-finding rule), use it.
 - If multiple solvers disagree, compare their reasoning against specific demo pairs — prefer the hypothesis that explains ALL pairs
 - **Rule evolution over deletion**: prefer specializing/generalizing a failing rule over creating a new one

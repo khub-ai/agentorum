@@ -174,7 +174,68 @@ The solver currently has no built-in preference for human-natural over computati
 
 This principle cannot be fully solved by hardcoding a preference list — such a list would be incomplete, potentially wrong, and wouldn't transfer to new puzzle categories. Instead, preferences are **learned from corrections** (see §8).
 
-### 8. Preference rules: learning from corrections (after gap repair)
+### 8. Failed-task gap-repair protocol
+
+When the system fails on a task, the correct response is **never to hand it the answer**. Instead, follow this protocol:
+
+#### Step 1 — Find the correct hypothesis independently
+Analyze the demo pairs manually (or with assistance). Derive the complete, precise rule that transforms every demo input into its output. Do not proceed until the hypothesis is verified against all demos.
+
+#### Step 2 — Identify the system gap
+Ask: *why didn't the system reach this hypothesis on its own?* Every failure has a class-level cause:
+
+| Gap type | Symptom | Example |
+|---|---|---|
+| **Missing tool** | MEDIATOR requested a tool; tool generator failed or produced wrong code | `radiate_sequences`, `fill_blocks_from_key` — no reliable implementation existed |
+| **Solver reasoning gap** | Solver's hypothesis was partially correct but missed a critical property | Solver saw "groups radiate" but missed the asymmetric role (longest goes first, tip-first) |
+| **Missing reasoning step** | Solver never considered a relevant property class | Solver didn't test sequential vs simultaneous application; didn't look for key-to-block rotation |
+| **Rule base noise** | Conflicting or wrong rules fired and confused MEDIATOR | Multiple near-duplicate rules with wrong color_map blocked the correct one |
+| **MEDIATOR prompt gap** | MEDIATOR has no guidance about a specific failure mode | No instruction to consider parallel vs sequential processing during revision |
+
+#### Step 3 — Repair the gap at class level
+Fix the **root cause**, not the symptom. The repair must generalize beyond this one task:
+
+| Gap type | Class-level repair | What NOT to do |
+|---|---|---|
+| **Missing tool** | Add a verified builtin to `grid_tools.py` + `executor.py` + mention in `mediator.md` | Add a task-specific dynamic tool directly to `tools.json` |
+| **Solver reasoning gap** | Add an analysis step to `prompts/solver.md` that prompts for the missing property | Add the correct answer as a hint in the run command |
+| **Missing reasoning step** | Add the reasoning step to `solver.md` and/or MEDIATOR revision prompt in `agents.py` | Add a rule that encodes the complete solution for this task |
+| **Rule base noise** | Deprecate incorrect rules; fix the condition text of ambiguous rules | Re-run until the system happens to get it right |
+| **MEDIATOR prompt gap** | Add guidance to `prompts/mediator.md` or the revision prompt in `agents.py` | Bypass MEDIATOR with a pre-coded pseudocode rule |
+
+#### Step 4 — Validate: let the system solve autonomously
+After repairing the gap, run the task with **no hints and no task-specific rules**. The system must:
+- Propose the correct hypothesis via the Solver (guided by the repaired reasoning prompts)
+- Reach for the correct tool (which now exists as a verified builtin)
+- Pass all demos and apply to the test input
+
+If it still fails, identify the *next* gap and repeat. Do not proceed to the next failed task until this one passes autonomously.
+
+#### Step 5 — Document in LEARNINGS.md and SOLVE_LOG.md
+For each fixed failure:
+- Record the failure type, root cause, and fix in `LEARNINGS.md`
+- Add a solve entry to `SOLVE_LOG.md` under the correct session
+
+#### The critical boundary: gap repair vs. answer injection
+
+The bright line is this:
+
+> **Filling a gap** = making the system *capable* of finding a class of solutions (tool, reasoning step, prompt guidance). The system still has to find this particular solution on its own.
+>
+> **Answer injection** = encoding the specific solution to this specific task (task-specific rule with explicit pseudocode, pre-filled hypothesis hint, direct `--insight` with the answer). This bypasses the solver entirely.
+
+Gap repairs are permanent improvements — they help on all future similar tasks. Answer injections are one-time shortcuts that tell us nothing about whether the system actually understands the problem class. They must be avoided.
+
+**Concrete examples of the distinction:**
+
+| Action | Type | Why |
+|---|---|---|
+| Add `fill_blocks_from_key` builtin to `grid_tools.py` | Gap repair | Any puzzle in this class can now be solved; solver still decides when and how to use it |
+| Add r_107 with `pseudocode: [{tool: fill_blocks_from_key, args: ...}]` pre-seeded for task 103eff5b | Answer injection | Round 0 fires this rule and skips the solver entirely |
+| Add "check for key-to-block-layout rotation" step to `solver.md` | Gap repair | Solver now looks for this property class; must still work out the specific rotation |
+| Run with `--insight "rotate key 90 degrees CW before mapping"` | Answer injection | Gives MEDIATOR the specific transformation to apply |
+
+### 9. Preference rules: learning from corrections (after gap repair)
 
 When the system gets a puzzle wrong and a human correction succeeds, that is a training event:
 
@@ -224,6 +285,116 @@ The system extracts a **preference rule** from this triple: not a solution for t
 
 ---
 
+## Namespace System
+
+Rules and tools are tagged with dataset namespaces so knowledge from one dataset generation cannot pollute another.
+
+### Schema
+
+Every rule and tool carries two new fields:
+
+```json
+{
+  "tags":  ["arc-agi-legacy"],
+  "scope": "dataset"
+}
+```
+
+- **`tags`**: free-string list of dataset names this entry applies to (e.g. `"arc-agi-legacy"`, `"arc-agi-3"`, `"my-custom-dataset"`). No enum — any string is valid; a simple validation list in `harness.py` guards against typos at runtime.
+- **`scope`**: `"dataset"` (default) fires only when the current dataset tag is in `tags`; `"global"` fires for every dataset regardless of `tags`. Global scope must be **explicitly assigned** — the system never auto-promotes to global. Only pure primitives with no domain specificity (rotate, flood_fill, replace_color, etc.) should be global.
+
+Matching rule:
+```python
+def is_active_for(entry, current_dataset):
+    return entry["scope"] == "global" or current_dataset in entry["tags"]
+```
+
+### Per-namespace stats
+
+Flat `stats.fired` / `stats.succeeded` are replaced by a per-namespace dict:
+
+```json
+"stats_by_ns": {
+    "arc-agi-legacy": { "fires": 12, "successes": 10 },
+    "arc-agi-3":      { "fires": 3,  "successes": 0  }
+}
+```
+
+This enables per-namespace auto-deprecation (remove a namespace from `tags` when it underperforms) without killing the rule for other namespaces.
+
+### Auto-tagging
+
+When the MEDIATOR writes a new rule or a tool is registered, the harness stamps the current `dataset_tag` automatically. No manual tagging needed during normal operation.
+
+### Cross-namespace promotion
+
+If a `"dataset"`-scoped rule succeeds on a namespace it wasn't originally tagged for, a human can add that namespace to `tags`. The system flags candidates (high success rate on a new namespace) but never promotes automatically — cross-namespace transfer is a human decision.
+
+### Migration
+
+- All existing rules → `"tags": ["arc-agi-legacy"], "scope": "dataset"`
+- All existing tools in `tools.json` → same
+- All builtin functions in `grid_tools.py` / `executor.py` → `"scope": "global"`
+
+---
+
+## Registry Pruning
+
+Rules and tools follow a four-state lifecycle to prevent the registry from accumulating low-quality entries indefinitely.
+
+### Lifecycle
+
+```
+active  →  flagged  →  deprecated  →  archived
+```
+
+- **active**: in rotation, included in matching and prompt context
+- **flagged**: underperforming or redundant, still active but marked for human review; shown with a warning label in prompts
+- **deprecated**: excluded from matching; kept in `rules.json` / `tools.json` for audit history
+- **archived**: moved to cold-storage files (`rules_archive.json`, `tools_archive.json`); never loaded at runtime. Archive is irreversible and a human-only action.
+
+### Performance pruning (auto, per-namespace)
+
+```
+fires < 10                              → too early to judge, no action
+fires ≥ 10,  success_rate == 0.0        → deprecate (remove namespace from tags)
+fires ≥ 5,   success_rate < 0.20        → flag for review
+fires ≥ 10,  success_rate < 0.40        → flag for review
+```
+
+Deprecation removes the **namespace** from `tags`, not the whole rule. If `tags` becomes empty, the rule is fully deprecated. Threshold is 10 fires (raised from the original 3 — new namespaces need time to accumulate signal before entries are killed).
+
+### Staleness pruning (auto, per-namespace)
+
+A rule that never fires provides no signal and wastes prompt space:
+
+```
+tasks_processed_in_ns ≥ 50,  fires_in_ns == 0  → flag
+tasks_processed_in_ns ≥ 100, fires_in_ns == 0  → deprecate
+```
+
+`tasks_processed_in_ns` is tracked as a counter in the namespace stats block.
+
+### Redundancy pruning (semi-auto)
+
+Detected via two signals:
+- **Condition overlap**: two rules fire on the same set of tasks repeatedly (high Jaccard on `fired_on` task ID lists). Auto-flag both; human confirms which to keep.
+- **Action conflict**: two rules with overlapping conditions point to different tools. Flag both; higher success-rate rule survives.
+
+The system surfaces redundancy candidates in the `--stats --section rules` report. Human confirms deprecation.
+
+### `--prune` maintenance command
+
+```bash
+# Deprecate all underperforming rules for a namespace
+python harness.py --prune --namespace arc-agi-legacy --min-success-rate 0.4 --min-fires 10
+
+# Show flagged entries without changing anything
+python harness.py --prune --dry-run --namespace arc-agi-legacy
+```
+
+---
+
 ## Known Limitations and Future Work
 
 ### Human hint trust
@@ -238,8 +409,26 @@ The solver may treat all non-zero groups as having the same role, missing cases 
 ### Rule matching reliability
 Rule matching uses an LLM call (MEDIATOR reads all rules as text and decides which apply). This can miss matches or produce false positives. **Future**: structured condition predicates (object count, color set, grid shape, transformation category) that can be matched programmatically before the LLM pass.
 
+### Rule-triggering efficiency (two-stage retrieval) — Future
+At ~100 rules the single LLM matching call is manageable (~100 tokens/rule × 100 rules). At 500+ rules per namespace it degrades: prompt noise reduces match quality and cost grows linearly.
+
+**Planned two-stage approach:**
+1. **Stage 1 — Python pre-filter (no LLM):** Analyze task grid properties (has_solid_border_row, color_count, grid_size, has_isolated_objects, etc.) and match against per-rule feature tags written at rule-creation time. Narrows 500 candidates to ~30 without any API call.
+2. **Stage 2 — LLM matching (current approach):** Send only the 30 pre-filtered candidates to the LLM. Same quality, much smaller prompt.
+
+**Embedding-based retrieval** (alternative for 5000+ rules): Embed each rule's condition text; embed a description of the current task; retrieve top-K by cosine similarity. No LLM call for stage 1 but adds embedding infrastructure.
+
+**Implementation trigger**: build stage 1 when any namespace exceeds ~300 active rules. Design the feature-tag schema into the rule schema now so rules written today are taggable without migration.
+
 ### Generated tool persistence
 Dynamically generated tools are registered at runtime but not saved to disk. If a tool was useful for puzzle A and puzzle B has a similar pattern, the tool must be regenerated. **Future**: persist verified tool code alongside rules.json so tools accumulate across runs.
+
+### ARC-AGI v3 readiness
+v3 tasks are expected to require qualitatively harder reasoning. Planned upgrades before tackling v3:
+- **Model**: default SOLVER/MEDIATOR to Opus 4.6 for deeper reasoning
+- **Multiple solvers**: run 2–3 solvers with intentionally diverse framings (spatial, procedural, analogical) when single-solver fails; architecture already supports `solver_ids`
+- **Revision budget**: raise MAX_REVISIONS from 5 to 8–10 for harder tasks
+- **Demo anomaly handling**: already improved (95% accuracy threshold for test output computation)
 
 ### Solver diversity
 Currently, using multiple solvers with the same underlying model (Sonnet 4.6) provides limited diversity — they tend to notice the same features. **Future**: plug in different model families (e.g., Opus for deep spatial reasoning, a fine-tuned ARC specialist) as distinct solvers when the single-solver fails.

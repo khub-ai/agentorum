@@ -207,15 +207,38 @@ async def _generate_and_register_tools(
 # Rule matching (Round 0)
 # ---------------------------------------------------------------------------
 
+TWO_STAGE_THRESHOLD = 30  # use two-stage retrieval when active task rules exceed this
+
 async def match_rules(
     rule_engine: RuleEngine,
     task: dict,
 ) -> list[RuleMatch]:
-    """Evaluate which rules match this puzzle. Returns ranked matches."""
-    if not rule_engine.active_rules():
+    """Evaluate which rules match this puzzle. Returns ranked matches.
+
+    When the active rule count exceeds TWO_STAGE_THRESHOLD, uses a two-stage
+    approach to keep prompt size manageable:
+      Stage 1 (cheap): ask the LLM which broad categories apply.
+      Stage 2 (standard): run full matching only on the category-filtered subset.
+    """
+    active_task_rules = rule_engine.active_task_rules()
+    if not active_task_rules:
         return []
+
     task_text = format_task_for_prompt(task)
-    user_msg = rule_engine.build_match_prompt(task_text)
+
+    if len(active_task_rules) > TWO_STAGE_THRESHOLD:
+        # --- Stage 1: category filter ---
+        cat_prompt = rule_engine.build_category_filter_prompt(task_text)
+        if cat_prompt:
+            cat_text, _ms1 = await call_agent("MEDIATOR", cat_prompt, max_tokens=256)
+            subset = rule_engine.filter_rules_by_categories(cat_text, max_rules=25)
+        else:
+            subset = active_task_rules[:25]   # fallback: first 25
+        # --- Stage 2: full match on subset ---
+        user_msg = rule_engine.build_match_prompt(task_text, rules_subset=subset)
+    else:
+        user_msg = rule_engine.build_match_prompt(task_text)
+
     text, _ms = await call_agent("MEDIATOR", user_msg, max_tokens=1024)
     return rule_engine.parse_match_response(text)
 
@@ -237,6 +260,7 @@ async def run_ensemble(
     verbose: bool = True,
     dataset: str = "",
     solver_ids: list[str] | None = None,
+    test_mode: bool = False,
 ) -> TaskMetadata:
     """
     Run the full ensemble on a single ARC-AGI task.
@@ -385,7 +409,7 @@ async def run_ensemble(
                 for sr in d.steps:
                     args_str = ", ".join(f"{k}={v!r}" for k, v in sr.args.items()) if sr.args else ""
                     step_status = "OK" if sr.success else f"ERROR: {sr.error}"
-                    log(f"      Step {sr.step_num}: {sr.tool}({args_str}) → {step_status}", force=True)
+                    log(f"      Step {sr.step_num}: {sr.tool}({args_str}) -> {step_status}", force=True)
                 if d.diff:
                     sample = ", ".join(f"({r},{c}) got {g} want {w}" for r, c, g, w in d.diff[:5])
                     log(f"      Diff sample: {sample}", force=True)
@@ -485,14 +509,23 @@ async def run_ensemble(
 
     success = meta.correct or False
 
+    if test_mode:
+        # In test mode: no learning, no persistence.
+        # Rules and tools are read-only — existing knowledge is used but nothing new is saved.
+        return meta
+
     # ------------------------------------------------------------------
     # Update rule stats
     # ------------------------------------------------------------------
+    fired_ids = {m.rule_id for m in matched_rules}
     for m in matched_rules:
         if success:
             rule_engine.record_success(m.rule_id, task_id)
         else:
             rule_engine.record_failure(m.rule_id, task_id)
+
+    # Increment tasks_seen for all active ns rules (staleness tracking)
+    rule_engine.increment_tasks_seen(fired_ids=fired_ids)
 
     # ------------------------------------------------------------------
     # Parse MEDIATOR rule updates
@@ -582,10 +615,10 @@ async def run_ensemble(
             log(f"  Generalized candidate rules created: {gen_ids}", force=True)
             rule_changes.extend(gen_changes)
 
-    # Auto-deprecate consistently failing rules
-    deprecated = rule_engine.auto_deprecate()
-    if deprecated:
-        log(f"  Auto-deprecated {len(deprecated)} rule(s): {deprecated}", force=True)
+    # Auto-deprecate/flag consistently failing or stale rules
+    pruned = rule_engine.auto_deprecate()
+    if pruned:
+        log(f"  Auto-pruned {len(pruned)} rule(s): {pruned}", force=True)
 
     if verbose and not human_in_loop:
         print_task_summary(meta, expected)

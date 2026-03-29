@@ -55,8 +55,11 @@ DEFAULT_PATH = Path(__file__).parent / "tools.json"
 class ToolRegistry:
     """Persistent store for LLM-generated grid transformation tools."""
 
-    def __init__(self, path: str | Path | None = None):
+    def __init__(self, path: str | Path | None = None, read_only: bool = False,
+                 dataset_tag: str = "arc-agi-legacy"):
         self.path = Path(path or os.environ.get("TOOLS_FILE", DEFAULT_PATH))
+        self.read_only = read_only
+        self.dataset_tag = dataset_tag   # namespace tag for this run
         self._data: dict[str, Any] = self._load()
 
     # ------------------------------------------------------------------
@@ -115,13 +118,29 @@ class ToolRegistry:
                 return t
         return None
 
+    def _tool_in_ns(self, tool: dict) -> bool:
+        """True if this tool should be active in the current namespace."""
+        if tool.get("scope", "dataset") == "global":
+            return True
+        return self.dataset_tag in tool.get("tags", [])
+
     def verified_tools(self) -> list[dict]:
-        return [t for t in self.tools if t.get("verified", False)]
+        """Return verified tools that belong to the current namespace."""
+        return [
+            t for t in self.tools
+            if t.get("verified", False) and self._tool_in_ns(t)
+        ]
 
     def stats_summary(self) -> dict[str, Any]:
-        total = len(self.tools)
-        verified = len(self.verified_tools())
-        return {"total": total, "verified": verified, "failed": total - verified}
+        total    = len(self.tools)
+        all_ver  = [t for t in self.tools if t.get("verified", False)]
+        ns_ver   = self.verified_tools()   # namespace-filtered verified
+        return {
+            "total":    total,
+            "verified": len(all_ver),
+            "ns_active": len(ns_ver),
+            "failed":   total - len(all_ver),
+        }
 
     # ------------------------------------------------------------------
     # Write
@@ -138,8 +157,14 @@ class ToolRegistry:
         source_task: str = "",
         description: str = "",
         fix_attempts: int = 0,
+        scope: str = "dataset",
     ) -> None:
-        """Add or update a tool entry and persist to disk."""
+        """Add or update a tool entry and persist to disk.
+
+        Auto-tags with the current dataset_tag so namespace filtering works.
+        """
+        # Auto-tag with current namespace
+        tags = [self.dataset_tag] if self.dataset_tag and scope == "dataset" else []
         entry = {
             "name": name,
             "code": code,
@@ -147,6 +172,8 @@ class ToolRegistry:
             "source_task": source_task,
             "description": description,
             "fix_attempts": fix_attempts,
+            "scope": scope,
+            "tags": tags,
             "created": self._now_iso(),
         }
         # Update in-memory
@@ -157,7 +184,8 @@ class ToolRegistry:
                     self._data["tools"][i] = entry
                 return
         self._data["tools"].append(entry)
-        self.save()
+        if not self.read_only:
+            self.save()
 
     # ------------------------------------------------------------------
     # Executor integration

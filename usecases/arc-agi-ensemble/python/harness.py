@@ -105,6 +105,74 @@ def _save_results(
     os.replace(tmp, output_path)
 
 
+def run_prune_audit(
+    rules: "RuleEngine",
+    min_fired: int = 10,
+    redundancy_threshold: float = 0.5,
+) -> None:
+    """Run maintenance pruning and print a detailed report. Does not run tasks."""
+    console.print(Panel(
+        f"[bold]Prune Audit[/bold]\n"
+        f"Namespace: [cyan]{rules.dataset_tag}[/cyan]\n"
+        f"Performance threshold: fires >= {min_fired}, 0 successes → deprecate\n"
+        f"Staleness: 50 tasks seen, 0 fires → flag  |  100 → deprecate\n"
+        f"Redundancy Jaccard >= {redundancy_threshold:.0%}",
+        title="--prune"
+    ))
+
+    before = rules.stats_summary()
+
+    # --- Performance / staleness pruning ---
+    changed = rules.auto_deprecate(min_fired=min_fired)
+
+    after = rules.stats_summary()
+    n_deprecated = after["deprecated"] - before["deprecated"]
+    n_flagged    = after["flagged"]    - before["flagged"]
+
+    table = Table(title="Pruning Results")
+    table.add_column("Metric")
+    table.add_column("Before")
+    table.add_column("After")
+    table.add_row("Active",     str(before["active"]),     str(after["active"]))
+    table.add_row("Flagged",    str(before["flagged"]),    str(after["flagged"]))
+    table.add_row("Deprecated", str(before["deprecated"]), str(after["deprecated"]))
+    table.add_row("Archived",   str(before["archived"]),   str(after["archived"]))
+    console.print(table)
+
+    if changed:
+        console.print(f"\n[yellow]Changed rules ({len(changed)}):[/yellow]")
+        for rid in changed:
+            r = rules.get(rid)
+            if r:
+                reason = r.get("deprecated_reason") or r.get("flagged_reason", "")
+                console.print(f"  [{r['status'].upper():12}] {rid}  — {reason}")
+    else:
+        console.print("[green]No rules changed.[/green]")
+
+    # --- Redundancy detection ---
+    pairs = rules.find_redundant_pairs(threshold=redundancy_threshold)
+    if pairs:
+        console.print(f"\n[yellow]Redundant rule pairs (Jaccard >= {redundancy_threshold:.0%}):[/yellow]")
+        rtable = Table()
+        rtable.add_column("Rule A")
+        rtable.add_column("Rule B")
+        rtable.add_column("Jaccard")
+        rtable.add_column("Shared / Union")
+        rtable.add_column("Suggestion")
+        for p in pairs:
+            rtable.add_row(
+                p["rule_a"], p["rule_b"],
+                f"{p['jaccard']:.2f}",
+                f"{p['shared']} / {p['union']}",
+                p["suggestion"],
+            )
+        console.print(rtable)
+    else:
+        console.print("[green]No redundant rule pairs found.[/green]")
+
+    console.print(f"\nRules file: [bold]{rules.path}[/bold]")
+
+
 def _save_failed(failed_path: Path, all_results: list[dict]) -> None:
     """Atomically write/update a JSON list of task IDs where correct=False."""
     failed_path.parent.mkdir(parents=True, exist_ok=True)
@@ -126,7 +194,10 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--offset",   type=int, default=0)
     p.add_argument("--task-id", "--task", dest="task_id", default="")
     p.add_argument("--output",   default=DEFAULT_OUTPUT)
-    p.add_argument("--human",    action="store_true", help="Enable human-in-the-loop checkpoints")
+    p.add_argument("--mode",     choices=["train", "test"], default="train",
+                   help="train (default): learn and persist new rules/tools. "
+                        "test: read-only knowledge, no persistence, max 1 revision.")
+    p.add_argument("--human",    action="store_true", help="Enable human-in-the-loop checkpoints (train mode only)")
     p.add_argument("--hypothesis",     default="", metavar="TEXT",
                    help="Pre-fill your hypothesis (shown before solvers run)")
     p.add_argument("--insight",        default="", metavar="TEXT",
@@ -149,6 +220,18 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--quiet",    action="store_true", help="Minimal output")
     p.add_argument("--dataset",  default="training",
                    help="Dataset name for leaderboard tracking (training/eval/test)")
+    p.add_argument("--dataset-tag", dest="dataset_tag", default="arc-agi-legacy",
+                   help="Namespace tag for rule/tool filtering "
+                        "(default: arc-agi-legacy; use arc-agi-3 for v3 tasks)")
+    p.add_argument("--prune",    action="store_true",
+                   help="Run maintenance pruning audit and exit (no task execution). "
+                        "Flags/deprecates stale or low-performing rules and reports "
+                        "redundant pairs. Respects --dataset-tag.")
+    p.add_argument("--prune-threshold", dest="prune_threshold", type=int, default=10,
+                   help="min_fired threshold for performance deprecation (default: 10)")
+    p.add_argument("--redundancy-threshold", dest="redundancy_threshold",
+                   type=float, default=0.5,
+                   help="Jaccard threshold for redundancy detection (default: 0.5)")
     return p.parse_args()
 
 
@@ -160,6 +243,12 @@ async def main() -> None:
     args = parse_args()
     verbose = not args.quiet
     agents.SHOW_PROMPTS = args.prompts
+    test_mode = (args.mode == "test")
+    if test_mode:
+        ensemble.MAX_REVISIONS = 1
+        if args.human:
+            console.print("[yellow]Warning: --human is ignored in test mode[/yellow]")
+            args.human = False
     if args.max_revisions is not None:
         ensemble.MAX_REVISIONS = args.max_revisions
 
@@ -230,10 +319,19 @@ async def main() -> None:
 
     # Rule engine
     rules_path = args.rules or None
-    rules = RuleEngine(rules_path)
+    rules = RuleEngine(rules_path, dataset_tag=args.dataset_tag)
+
+    # --prune: maintenance audit — no task execution
+    if args.prune:
+        run_prune_audit(
+            rules,
+            min_fired=args.prune_threshold,
+            redundancy_threshold=args.redundancy_threshold,
+        )
+        return
 
     # Tool registry — load and re-register all previously verified tools
-    tool_reg = ToolRegistry()
+    tool_reg = ToolRegistry(read_only=test_mode, dataset_tag=args.dataset_tag)
     loaded_tools = tool_reg.load_into_executor()
     if loaded_tools:
         console.print(f"[dim]  Restored {len(loaded_tools)} tool(s) from registry: {loaded_tools}[/dim]")
@@ -268,10 +366,12 @@ async def main() -> None:
         f"[bold]ARC-AGI Python Ensemble[/bold]\n"
         f"Model:  [cyan]{DEFAULT_MODEL}[/cyan]\n"
         f"Tasks:  {len(task_ids)} remaining ({scope}){resume_note}\n"
+        f"Mode:   {'[red]test[/red] (read-only, max 1 revision)' if test_mode else '[green]train[/green] (learning enabled)'}\n"
         f"Flags:  human={'on' if args.human else 'off'}  "
         f"prompts={'on' if args.prompts else 'off'}  "
         f"charts={'on' if args.charts else 'off'}  "
         f"resume={'on' if args.resume else 'off'}\n"
+        f"NS tag: [cyan]{args.dataset_tag}[/cyan]\n"
         f"Rules:  {rules.path}  {rules.stats_summary()}\n"
         f"Tools:  {tool_reg.path}  {tool_reg.stats_summary()}",
         title="Harness"
@@ -300,6 +400,7 @@ async def main() -> None:
             human_revision_hint=args.revision_hint,
             verbose=verbose,
             dataset=args.dataset,
+            test_mode=test_mode,
         )
 
         if meta.correct:

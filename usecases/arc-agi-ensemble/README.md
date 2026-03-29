@@ -180,6 +180,31 @@ python harness.py --limit 20 --human --output results.json
 python harness.py --limit 10 --rules my-rules.json
 ```
 
+### Training mode vs. test mode
+
+The harness operates in one of two modes, controlled by `--mode`:
+
+| | `--mode train` (default) | `--mode test` |
+|---|---|---|
+| **Rules** | New rules created and persisted | Read-only — existing rules used, no new rules saved |
+| **Tools** | New tools generated and persisted | Read-only — existing tools used, no new tools saved |
+| **Human checkpoints** | Available via `--human` | Disabled (ignored if passed) |
+| **Revisions on failure** | Up to `MAX_REVISIONS` (default 5) | At most 1 revision |
+| **Use case** | Gap-repair, learning new puzzle types | Benchmark evaluation, leaderboard runs |
+
+```bash
+# Benchmark a single task without touching the knowledge base
+python harness.py --mode test --task-id 1e0a9b12
+
+# Evaluate a batch of tasks (read-only, no learning side-effects)
+python harness.py --mode test --limit 100 --output benchmark.json
+
+# Train on a specific failed task (default mode — explicit for clarity)
+python harness.py --mode train --task-id 14b8e18c --max-revisions 5
+```
+
+In test mode, tools may still be **generated in-memory** during the run (the LLM can still propose new tools to solve a task), but they are discarded when the process exits and never written to `tools.json`.
+
 ### Visualizations
 
 The Python harness can generate four chart types:

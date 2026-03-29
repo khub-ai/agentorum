@@ -209,7 +209,7 @@ def print_task_summary(meta: TaskMetadata, expected: Optional[Grid] = None,
         return
 
     # Header
-    status = "✓ CORRECT" if meta.correct else "✗ WRONG"
+    status = "+ CORRECT" if meta.correct else "X WRONG"
     color = "green" if meta.correct else "red"
     console.print(Panel(
         f"[{color}]{status}[/{color}]  |  "
@@ -260,7 +260,7 @@ def print_task_summary(meta: TaskMetadata, expected: Optional[Grid] = None,
         for r, c, got, want in diffs[:10]:
             console.print(f"  ({r},{c}): got {got}, expected {want}")
         if len(diffs) > 10:
-            console.print(f"  … and {len(diffs)-10} more")
+            console.print(f"  ... and {len(diffs)-10} more")
 
 
 def _print_plain(meta: TaskMetadata, expected: Optional[Grid] = None) -> None:

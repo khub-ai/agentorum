@@ -232,3 +232,68 @@ Each entry includes a **Timestamp** field (UTC, ISO-8601) recording when the tas
 - `r_024` `[object-manipulation]` Sheared parallelogram shapes → one de-shear step → use `unshear_right`
 **Note:** This puzzle exposed the limit of LLM tool generation for geometric algorithms. Hand-coded `unshear_right` in `grid_tools.py` (like `gravity_by_type`). Key insight: shapes are diagonal, so color-grouping rather than 4-connected BFS is needed.
 **Key lesson:** For complex geometric transformations, hand-code the builtin and point MEDIATOR to it. Tool generator alone can't infer subtle geometry.
+
+---
+
+### 14754a24 — Cross/plus shape completion
+**Timestamp:** 2026-03-28T04:25Z (EDT: 2026-03-28 00:25)
+**Retry:** 9th attempt (8 prior failed runs in this session)
+**Category:** `[completion]` `[shape-completion]`
+**Demos:** 4 | **Grid:** 19×19 (test)
+**Pattern:** Grid background is color 5, with color 0 scattered and small clusters of color 4. The 4-cells form incomplete plus/cross shapes: each 8-connected cluster of 4s defines one cross, where the center C is the unique cell orthogonally adjacent to all cluster cells (Case A: C outside cluster; Case B: C is the cluster cell adjacent to all others). Any 5-valued cell occupying one of the 5 cross positions (C ± up/down/left/right) becomes color 2. Cells with value 0 or 4 never change.
+**Solver hypothesis (final, high confidence):** Correct — "find all 8-connected clusters of 4-cells; for each, find center C via two-case rule; change any 5-valued cross position to 2"
+**MEDIATOR action:** Requested new tool `fill_cross_center_arms` (failed 5 fixes) → `fill_cross_arms_v2` (failed 5 fixes) → `fill_cross_center` (failed 5 fixes) → `fill_cross_from_markers` (verified after 5 fixes, passed demos)
+**Rounds:** 6 | **Revisions:** 4 | **Hints:** none (fully autonomous)
+**Cost:** $1.60 | **Time:** 744.5s
+**Result:** ✓ CORRECT 100%
+**Rules created:**
+- `r_109` (active) `[completion]` Cross/plus marker puzzle where 4-cells form clusters and non-marker arm cells (color 5) need filling → use `fill_cross_from_markers(marker_color=4, target_color=5, fill_color=2)`
+- `r_110` (candidate) `[completion]` Generalized: any color M clusters defining incomplete plus/cross shapes with fill color T → use `fill_cross_from_markers`
+**Note:** Required 8 failed runs before succeeding. Root causes (in layers): (1) Solver initially described wrong cell type ("0-cells change" instead of "5-cells change") — fixed by adding transition census to solver.md Step 1. (2) Solver then said "5s between two 4s on same row/col" — fixed by adding shape-completion check and cross/plus detection hint to solver.md Step 2. (3) Solver found "hub=4-cell-with-most-4-neighbors" which fails for diagonal clusters (Case A) — fixed by adding two-case center algorithm with concrete examples. (4) MEDIATOR kept simplifying to wrong "between 4s" algorithm due to "prefer simpler" principle — fixed by changing to "prefer simpler CORRECT" and adding explicit "verify 100% of demo cells" requirement. (5) Added cross-completion tool behavior template to mediator.md so MEDIATOR produces a precise `behavior` description in `new_tools` requests. Tool generator then succeeded on 4th attempt.
+
+---
+
+### 14b8e18c — Closed square ring outside-corner marking
+**Timestamp:** 2026-03-28T11:25Z (EDT: 2026-03-28 07:25)
+**Retry:** 4th run in this session (3 prior failed)
+**Category:** `[object_manipulation]` `[shape-completion]`
+**Demos:** 3 | **Grid:** 10×10
+**Pattern:** Background is 7. For each connected component that forms a **closed square ring** (component cells = exactly the perimeter of a K×K bounding box, K≥2, same height and width), place color 2 at 8 outside-corner positions: 2 orthogonal exterior cells per corner — top-left corner (r1,c1) → marks at (r1-1,c1) and (r1,c1-1). Lines, L-shapes, and non-square rectangles (h≠w) do not qualify. A 2×2 solid block is the degenerate case (K=2, no interior). A large ring may contain other same-colored components in its interior — the ring check uses component membership only, never grid interior values.
+**Solver hypothesis (final, high confidence):** Correct — identified 8 orthogonal marks per qualifying shape; correctly excluded non-rectangular shapes
+**MEDIATOR action:** Initial tool `mark_closed_rect_outside_corners` failed (marked non-ring shapes) → revised to `mark_closed_rings_only` which verified OK after 4 fix attempts
+**Rounds:** 4 | **Revisions:** 1 | **Hints:** none (fully autonomous)
+**Cost:** $0.45 | **Time:** 192.5s
+**Result:** ✓ CORRECT 100%
+**Rules created:**
+- `r_112` (active) `[object_manipulation]` Closed square ring marking task
+- `r_113` (candidate) Generalized ring marking rule
+**Note:** Required 3 failed runs. Root causes: (1) Solver described "4 diagonal marks" instead of "8 orthogonal marks" — fixed by adding "outside-corner marking" hint to solver.md Step 2. (2) Tool creator used "must have interior (dimensions ≥ 3)" as hollow-ring proxy, which excludes valid 2×2 degenerate case — fixed by adding "square constraint" hint to solver.md and closed-square-ring tool template to mediator.md. (3) Template initially wrong: "no interior cell is object_color" fails for large rings containing same-colored components in their interior — fixed to: "component cells == perimeter cells exactly" (never check grid interior values). (4) executor.py crash fix: tool returning None caused unhandled TypeError in diff_cells → now treated as tool failure.
+
+---
+
+### 15113be4 — Grid key-mask block coloring
+**Timestamp:** 2026-03-28T18:XX (EDT: 2026-03-28 14:XX)
+**Retry:** 5th run in this session (4 prior failed)
+**Category:** `[extraction]` `[object_manipulation]`
+**Demos:** 3 | **Grid:** 23×23
+**Pattern:** 23×23 grid structured as a 6×6 arrangement of 3×3 data blocks, separated by 4-lines at fixed rows/cols 3,7,11,15,19. Block (br,bc) starts at row=br\*4, col=bc\*4. One 2×2 corner of blocks (6×6 total cells) contains a **key area**: a non-0/non-1/non-4 color arranged as nine 2×2 sub-blocks, encoding a 3×3 binary mask M. For each of the 32 non-key data blocks: check if ALL mask-1 positions have value 1 (all-or-nothing full match). If yes: color those 1s → key_color. If even one mask-1 position is 0: skip block entirely. Key area is always preserved unchanged.
+**Solver hypothesis (final, high confidence):** Correct — identified all-or-nothing rule, stencil structure, block band formula
+**MEDIATOR action:** Multiple new tools generated across runs: `stamp_key_pattern_v3` and `stamp_key_pattern_v4` (loaded from registry from earlier failed runs) passed all demos on revision 1-2 of this run
+**Rounds:** 5 | **Revisions:** 2 | **Hints:** none (fully autonomous)
+**Cost:** $0.43 | **Time:** 128.9s
+**Result:** ✓ CORRECT 100%
+**Rules created:** None new (existing rules r_114/r_115 matched and were updated)
+**Note:** Required 4 failed runs. Root causes: (1) Run 1 — tool colored 0-cells instead of only 1-cells; (2) Runs 2–4 — tool_creator repeatedly generated code with wrong block indexing (`br*3` instead of `br*4`) because the behavior description didn't include the explicit formula. Fixed by: adding "block (br,bc) starts at br\*4, bc\*4" to solver hint and mediator template; adding CRITICAL note to tool_generator system prompt: "find separator positions, don't assume br\*block_size — use br\*4 for grids with 1-separator-wide rows"; also adding warning against hardcoding observed color values. Tools from earlier runs (stamp_key_pattern_v3/v4) happened to be correct and were reused from registry.
+
+---
+
+### 15663ba9 — Closed-loop corner convexity marking
+**Category:** `[object_manipulation]` `[path_analysis]`
+**Demos:** 3 | **Grid:** ~12–14×13–16
+**Pattern:** Each non-background connected component is a 1-pixel-wide closed loop. For each 90° turn cell: compute inside diagonal = (r+dr1+dr2, c+dc1+dc2). Flood-fill exterior from boundary; if inside diagonal is exterior (or OOB) → mark 2 (concave); if interior → mark 4 (convex). Straight cells unchanged.
+**Solver hypothesis:** Correct (high confidence) — reproduced verbatim from solver hint.
+**MEDIATOR action:** Reused `mark_loop_corners` from registry (generated in a prior failed run). Passed all demos first try.
+**Rounds:** 3 | **Revisions:** 0 | **Hints:** none (fully autonomous after prompt fix)
+**Cost:** $0.24 | **Time:** 46.4s
+**Result:** ✓ CORRECT 100%
+**Rules created:** 1 candidate rule added
